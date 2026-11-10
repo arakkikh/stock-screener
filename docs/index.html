@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>株スクリーナー</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-row">
+      <h1>株スクリーナー</h1>
+      <span id="as-of" class="muted small"></span>
+    </div>
+    <nav class="tabs" id="market-tabs">
+      <a href="#jp" data-market="jp">日本株</a>
+      <a href="#us" data-market="us">米国株</a>
+      <a href="#portfolio" data-market="portfolio">保有・記録</a>
+    </nav>
+  </header>
+
+  <main id="app"><p class="muted pad">読み込み中…</p></main>
+
+  <footer>
+    <p><strong>このサイトは投資助言ではありません。最終判断は自己責任で行ってください。</strong></p>
+    <p>表示は機械的な判定結果で、売買を勧めるものではありません。株価データは遅れや誤りを含むことがあります。</p>
+    <p class="small">株価: Yahoo Finance ／ チャート: TradingView Lightweight Charts</p>
+  </footer>
+
+  <script src="vendor/lightweight-charts.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
