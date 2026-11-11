@@ -6,6 +6,7 @@ import { drawChart, legendHTML } from "./chart.js";
 import { earningsInfo as earningsOf, overrideKey } from "./earnings.js";
 import { renderPortfolio, renderNewPosition, initPortfolio, loadPositions } from "./portfolio.js";
 import { renderMomentumList, renderMomentumDetail, initMomentum } from "./momentum.js";
+import { renderFundList, renderFundDetail, mountFundCard, initFund } from "./fund.js";
 
 const MARKETS = ["jp", "us"];
 const app = document.getElementById("app");
@@ -345,6 +346,7 @@ async function renderDetail(d, code) {
       <p class="small muted">▲ エントリー候補　▼ 警戒・売りサイン　● 補助サイン</p>
     </section>
     ${conditionsHTML(d, s)}${signsHTML(d, s)}${infoHTML(d, s)}
+    <div id="fund-card"></div>
     <section class="card">
       <h2>ポジション</h2>
       ${held ? `<p class="small">この銘柄を保有中です。<a href="#portfolio">保有・記録を見る</a></p>` : ""}
@@ -352,6 +354,7 @@ async function renderDetail(d, code) {
       <a class="btn primary" href="#portfolio/new/${d.market}/${encodeURIComponent(s.code)}">ポジションを登録</a>
     </section>`;
   window.scrollTo(0, 0);
+  mountFundCard(document.getElementById("fund-card"), d.market, code);
   const el = document.getElementById("stock-chart");
   try {
     const data = await getJSON(`data/${d.market}/${encodeURIComponent(code)}.json`);
@@ -370,17 +373,19 @@ async function loadPortfolioContext() {
   return { markets: { jp, us }, momentum: { jp: mjp, us: mus }, fx };
 }
 
-// 上部のタブ（市場）と、その下の切り替え（逆張り／順張り）の表示を合わせる
+const MODE_PATH = { contrarian: "", momentum: "/m", fund: "/f" };
+
+// 上部のタブ（市場）と、その下の切り替え（逆張り／順張り／ファンダ）の表示を合わせる
 function showTabs(market, mode) {
   for (const tab of document.querySelectorAll("#market-tabs a")) {
     tab.classList.toggle("on", tab.dataset.market === (market ?? "portfolio"));
-    if (MARKETS.includes(tab.dataset.market)) tab.href = `#${tab.dataset.market}${mode === "momentum" ? "/m" : ""}`;
+    if (MARKETS.includes(tab.dataset.market)) tab.href = `#${tab.dataset.market}${MODE_PATH[mode]}`;
   }
   const modes = document.getElementById("mode-tabs");
   modes.hidden = !market;
   for (const tab of modes.querySelectorAll("a")) {
     tab.classList.toggle("on", tab.dataset.mode === mode);
-    tab.href = `#${market}${tab.dataset.mode === "momentum" ? "/m" : ""}`;
+    tab.href = `#${market}${MODE_PATH[tab.dataset.mode]}`;
   }
 }
 
@@ -388,7 +393,7 @@ async function route() {
   const [first, second, third, fourth, fifth] = decodeURIComponent(location.hash.slice(1)).split("/");
   const isPortfolio = first === "portfolio";
   const market = isPortfolio ? null : MARKETS.includes(first) ? first : store.get("market", "jp");
-  const mode = !isPortfolio && second === "m" ? "momentum" : "contrarian";
+  const mode = isPortfolio ? "contrarian" : second === "m" ? "momentum" : second === "f" ? "fund" : "contrarian";
   showTabs(market, mode);
   try {
     if (isPortfolio) {
@@ -412,6 +417,23 @@ async function route() {
       document.getElementById("as-of").textContent = `${shortDate(data.as_of)} 終値時点`;
       if (third) renderMomentumDetail(app, data, third);
       else renderMomentumList(app, data);
+      return;
+    }
+    if (mode === "fund") {
+      const data = await getJSON(`data/${market}_fund.json`);
+      current = await getJSON(`data/${market}.json`);
+      document.getElementById("as-of").textContent = `${shortDate(data.as_of)} 終値時点`;
+      if (third) {
+        // 逆張り・順張りの対象に入っている銘柄なら、そちらの詳細へのリンクを出す
+        const momentum = await getJSON(`data/${market}_momentum.json`).catch(() => null);
+        const links = [];
+        const path = encodeURIComponent(third);
+        if (current.stocks.some((s) => s.code === third)) links.push([`#${market}/${path}`, "逆張りの詳細"]);
+        if (momentum?.stocks.some((s) => s.code === third)) links.push([`#${market}/m/${path}`, "順張りの詳細"]);
+        renderFundDetail(app, data, third, links);
+      } else {
+        renderFundList(app, data);
+      }
       return;
     }
     if (current && current.market !== market) Object.assign(ui, { theme: "", query: "", listScroll: 0 });
@@ -481,5 +503,6 @@ app.addEventListener("change", (event) => {
 
 initPortfolio(app, route);
 initMomentum(app, getJSON);
+initFund(app, getJSON);
 window.addEventListener("hashchange", route);
 route();

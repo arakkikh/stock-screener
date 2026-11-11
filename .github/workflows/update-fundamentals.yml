@@ -1,0 +1,61 @@
+name: 財務データ更新（週1回）
+
+on:
+  schedule:
+    # 土曜 11:00 JST。決算は四半期ごとなので、財務データの取得は週1回にしている。時刻は UTC で書く
+    - cron: "0 2 * * 6"
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: "この日数以内に取得済みの銘柄は取り直さない（0 で全銘柄を取り直す）"
+        type: string
+        default: "5"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # 約1,000銘柄を1銘柄ずつ取得する。途中で制限されても、取れた分は保存する
+      - name: 財務データの取得（日本株）
+        id: jp
+        continue-on-error: true
+        run: python scripts/update_fundamentals.py --market jp --max-age-days ${{ inputs.max_age_days || '5' }}
+      - name: 財務データの取得（米国株）
+        id: us
+        continue-on-error: true
+        run: python scripts/update_fundamentals.py --market us --max-age-days ${{ inputs.max_age_days || '5' }}
+      - name: 採点し直す
+        run: |
+          python scripts/update.py --market jp --mode fundamentals
+          python scripts/update.py --market us --mode fundamentals
+      - name: 結果を保存
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data docs/data
+          if git diff --cached --quiet; then
+            echo "変更なし"
+            exit 0
+          fi
+          git commit -m "財務データ更新 $(date -u +%F)"
+          git pull --rebase
+          git push
+      - name: 取得に失敗していたら知らせる
+        if: steps.jp.outcome == 'failure' || steps.us.outcome == 'failure'
+        run: |
+          echo "財務データの取得に半数以上失敗した市場があります（取れた分は保存済み。次回は続きから取得します）"
+          exit 1

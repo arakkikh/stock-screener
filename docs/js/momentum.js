@@ -3,6 +3,7 @@ import { esc, price, number, pct, signClass, shortDate } from "./format.js";
 import { drawChart, legendItems, LINE_COLORS } from "./chart.js";
 import { earningsInfo } from "./earnings.js";
 import { loadPositions } from "./portfolio.js";
+import { mountFundCard } from "./fund.js";
 
 const ui = { filter: "passed", theme: "", sort: "rs", query: "", listScroll: 0, market: null };
 let current = null;
@@ -262,6 +263,7 @@ export async function renderMomentumDetail(app, d, code) {
         <tr><td>セクター</td><td>${esc(s.sector)}</td></tr>
       </table>
     </section>
+    <div id="fund-card"></div>
     <section class="card">
       <h2>ポジション</h2>
       ${held ? `<p class="small">この銘柄を保有中です。<a href="#portfolio">保有・記録を見る</a></p>` : ""}
@@ -269,6 +271,7 @@ export async function renderMomentumDetail(app, d, code) {
       <a class="btn primary" href="#portfolio/new/${d.market}/${encodeURIComponent(s.code)}/m">ポジションを登録</a>
     </section>`;
   window.scrollTo(0, 0);
+  mountFundCard(document.getElementById("fund-card"), d.market, code);
   const el = document.getElementById("mo-chart");
   if (!el) return;
   try {

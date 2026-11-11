@@ -153,3 +153,16 @@ table.kv.exit td:last-child { white-space: nowrap; max-width: none; }
   color: var(--muted); background: var(--chip); font-size: 13px; font-weight: 600;
 }
 .modes a.on { background: var(--text); color: var(--card); }
+
+/* ファンダ分析 */
+.radar { display: block; width: 100%; max-width: 340px; margin: 4px auto 8px; }
+.radar .grid polygon { fill: none; stroke: var(--line); stroke-width: 1; }
+.radar .grid line { stroke: var(--line); stroke-width: 1; }
+.radar .shape { fill: var(--accent); fill-opacity: 0.25; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.radar text { fill: var(--text); font-size: 12px; }
+.radar text.score { fill: var(--muted); font-size: 11px; }
+details.axis { border-top: 1px solid var(--line); }
+details.axis summary { display: flex; justify-content: space-between; font-weight: 600; padding: 9px 0; list-style: none; }
+details.axis summary::-webkit-details-marker { display: none; }
+details.axis summary span:first-child::before { content: "▸ "; color: var(--muted); }
+details.axis[open] summary span:first-child::before { content: "▾ "; }

@@ -37,6 +37,11 @@ jobs:
         id: momentum
         continue-on-error: true
         run: python scripts/update.py --market jp --mode momentum ${{ inputs.force && '--force' || '' }}
+      # 保存済みの財務データと最新の株価から、ファンダ分析を計算し直す（通信なし）
+      - name: ファンダ分析の再計算
+        id: fund
+        continue-on-error: true
+        run: python scripts/update.py --market jp --mode fundamentals
       - name: 結果を保存
         run: |
           git config user.name "github-actions[bot]"
@@ -49,8 +54,8 @@ jobs:
           git commit -m "データ更新: jp $(date -u +%F)"
           git pull --rebase
           git push
-      - name: 順張りの更新に失敗していたら知らせる
-        if: steps.momentum.outcome == 'failure'
+      - name: 順張り・ファンダの更新に失敗していたら知らせる
+        if: steps.momentum.outcome == 'failure' || steps.fund.outcome == 'failure'
         run: |
-          echo "順張りモードのデータ更新に失敗しました（逆張りは保存済み）"
+          echo "順張りモードまたはファンダ分析の更新に失敗しました（逆張りは保存済み）"
           exit 1

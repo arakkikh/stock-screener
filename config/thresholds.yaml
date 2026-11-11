@@ -139,10 +139,44 @@ default:
       stop_loss_pct: -8       # 買値からこの%で損切り 仮置き
       ma_break_volume_ratio: 1.5  # 50日線割れの警戒: 出来高が平均のこの倍以上 仮置き
 
+  # ------------------------------------------------------------
+  # フェーズ3: ファンダ分析（5軸 × 6項目のチェック）すべて仮置き
+  # ------------------------------------------------------------
+  fundamentals:
+    max_unknown_checks: 3     # 1つの軸で「判定不可」がこの数を超えたら、その軸は点数を付けない
+    sector_min_stocks: 3      # セクターの中央値を出すのに必要な銘柄数
+    financial_sectors: []     # 銀行・保険など。財務健全性などの一部の項目を判定しない（市場ごとに指定）
+
+    value:                    # 割安度
+      peg_max: 1.0            # PEG（PER ÷ 予想EPS成長率）がこの値未満
+      fcf_yield_min_pct: 5    # フリーキャッシュフロー利回りがこの%以上
+    growth:                   # 成長（アナリスト予想）
+      eps_growth_min_pct: 10  # 予想EPS成長率がこの%以上
+      revenue_growth_min_pct: 5   # 予想売上成長率がこの%以上
+    past:                     # 過去実績
+      cagr_years: 3           # EPS成長率を見る年数
+      roe_min_pct: 10
+      roa_min_pct: 5
+    health:                   # 財務健全性
+      current_ratio_min: 1.0  # 流動比率（流動資産 ÷ 流動負債）
+      debt_to_equity_max: 1.0 # 有利子負債 ÷ 自己資本
+      ocf_to_debt_min: 0.2    # 営業キャッシュフロー ÷ 有利子負債
+      interest_cover_min: 5   # 利益（EBIT）÷ 支払利息
+      equity_ratio_min_pct: 40    # 自己資本比率
+    dividend:                 # 配当
+      low_quantile: 25        # 配当を出している銘柄の中で、利回りが下からこの%の水準
+      high_quantile: 75       # 同じく、上位の水準
+      payout_max_pct: 70      # 配当性向の上限
+      stable_years: 10        # この年数、減配していないこと・増配していること
+
 jp:
+  fundamentals:
+    financial_sectors: [銀行業, 保険業, "証券、商品先物取引業", その他金融業]
   thermometer:
     vol_index_min: 50       # 日経VI
 
 us:
   thermometer:
     vol_index_min: 30       # VIX 仮置き
+  fundamentals:
+    financial_sectors: [Financials]

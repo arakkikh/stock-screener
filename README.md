@@ -4,6 +4,7 @@
 
 - 逆張りモード: TOPIX Core30 + Large70 ／ S&P 100
 - 順張りモード（ミネルヴィニ式）: TOPIX 500 ／ S&P 500
+- ファンダ分析（5軸のレーダーチャート）: TOPIX 500 ／ S&P 500
 売買の自動執行はしません。判断材料を表示するだけです。
 
 **このサイトは投資助言ではありません。最終判断は自己責任で行ってください。**
@@ -13,8 +14,9 @@
 1. GitHub Actions が毎営業日の引け後に株価を取得し、判定結果を `docs/data/` の JSON に保存します。
    - 日本株: 平日 16:30 JST（予備 18:30）
    - 米国株: 火〜土 7:30 JST（予備 9:30）
-2. GitHub Pages が `docs/` を公開します。画面は JSON を読んで表示するだけです。
-3. ポジションやトレード記録は、見ている端末のブラウザの中にだけ保存されます（このリポジトリには入りません）。
+2. 財務データは週1回（土曜 11:00 JST）取得し、`data/` に保存します。PER など株価で変わる指標は毎日計算し直します。
+3. GitHub Pages が `docs/` を公開します。画面は JSON を読んで表示するだけです。
+4. ポジションやトレード記録は、見ている端末のブラウザの中にだけ保存されます（このリポジトリには入りません）。
 
 ## フォルダ
 
@@ -23,9 +25,11 @@
 | `config/thresholds.yaml` | しきい値。すべてここに集約。`jp:` / `us:` に書くと市場ごとに上書きできる |
 | `config/universe_jp.csv`, `universe_us.csv` | 逆張りの対象銘柄。`themes` 列にテーマを `|` 区切りで書ける |
 | `config/universe_jp_momentum.csv`, `universe_us_momentum.csv` | 順張りの対象銘柄 |
-| `screener/` | 判定ロジック（市場に依存しない）。順張りは `momentum.py` |
+| `screener/` | 判定ロジック（市場に依存しない）。順張りは `momentum.py`、ファンダ分析は `fundamentals.py` |
 | `markets/` | 市場ごとの違いとデータ取得 |
-| `scripts/update.py` | データ更新 |
+| `scripts/update.py` | データ更新（毎日） |
+| `scripts/update_fundamentals.py` | 財務データの取得（週1回） |
+| `data/` | 取得した財務データ（採点のもと。画面には直接出ない） |
 | `scripts/build_universe.py` | 銘柄リストを公式の構成銘柄から作り直す |
 | `docs/` | 公開される画面とデータ |
 | `tests/` | テスト |
@@ -64,8 +68,16 @@ python3 -m http.server 8000 --directory docs
 - チャート用のデータと決算日は、8条件すべてに合格した銘柄だけ作ります（リポジトリが大きくなりすぎないようにするため）。
 - 順張りの更新に失敗しても、逆張りの結果は保存されます。
 
+## ファンダ分析について
+
+- 割安度・成長・過去実績・財務健全性・配当の5軸を、それぞれ6項目のチェックで採点します。しきい値は `config/thresholds.yaml` の `fundamentals:` にあります。
+- 割安度は他の銘柄との比較で、理論株価（DCF）の計算はしていません。成長はアナリスト予想にもとづきます。
+- 銀行・保険などの金融業は、財務健全性などの一部の項目を判定しません。
+- 点数は参考情報で、逆張り・順張りの候補判定には使っていません。
+- 財務データを手元で取り直すには: `.venv/bin/python scripts/update_fundamentals.py --market jp` のあと `.venv/bin/python scripts/update.py --market jp --mode fundamentals`
+
 ## データについて
 
-- 株価・指数・VIX・為替・決算予定日は Yahoo Finance（yfinance 経由、非公式）。遅れや誤りを含むことがあります。
+- 株価・指数・VIX・為替・決算予定日・財務データ・アナリスト予想は Yahoo Finance（yfinance 経由、非公式）。遅れや誤りを含むことがあります。
 - 日経VI と Fear & Greed は自動取得していません。画面で手入力します。
 - チャートは TradingView Lightweight Charts（Apache License 2.0）を同梱しています。

@@ -3,7 +3,9 @@
 使い方:  python scripts/update.py --market jp   （または us）
   --mode contrarian   逆張りだけ更新（docs/data/jp.json など）
   --mode momentum     順張りだけ更新（docs/data/jp_momentum.json など）
-  --mode all          両方（既定）
+  --mode fundamentals ファンダ分析だけ更新（docs/data/jp_fund.json など）。保存済みの財務データと
+                      最新の株価から計算し直すだけで、通信はしない
+  --mode all          すべて（既定）
   --force             新しい営業日のデータがなくても作り直す
 """
 from __future__ import annotations
@@ -21,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 import markets  # noqa: E402
 from markets import fetch  # noqa: E402
-from screener import momentum, report  # noqa: E402
+from screener import fundamentals, momentum, report  # noqa: E402
 from screener.config import load_thresholds  # noqa: E402
 
 DATA = ROOT / "docs" / "data"
@@ -277,10 +279,89 @@ def run_momentum(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: boo
     return 0
 
 
+def _rounded(value, digits: int = 2):
+    if isinstance(value, bool) or value is None:
+        return value
+    return round(float(value), digits)
+
+
+# 画面に出す指標（計算の途中で使うだけの金額などは出力しない）
+FUND_METRICS = [
+    "financial", "loss", "payer", "no_debt", "per", "pbr", "peg", "ev_ebitda", "fcf_yield", "eps_g0", "eps_g1",
+    "eps_g_next", "rev_g_next", "analysts", "eps_cagr", "eps_g_last", "roe", "roa", "margin", "margin_prev",
+    "current_ratio", "de", "de_old", "ocf_to_debt", "interest_cover", "equity_ratio", "div_yield", "payout",
+    "div_full_history",
+]
+
+
+def run_fundamentals(market, cfg: dict, as_of: dt.date, now: dt.datetime) -> int:
+    """ファンダ分析（5軸の採点）を作り直す。
+
+    財務データは週1回 scripts/update_fundamentals.py が data/ に保存したものを使う。
+    PER など株価で変わる指標は、ここで最新の終値から計算する。
+    """
+    tag = f"{market.key}・ファンダ"
+    store = ROOT / "data" / f"fundamentals_{market.key}.json"
+    if not store.exists():
+        print(f"[{tag}] 財務データがまだありません（scripts/update_fundamentals.py を先に実行します）")
+        return 0
+    facts = read_json(store, {})
+
+    names, sectors, prices, price_date = {}, {}, {}, None
+    for name in (f"universe_{market.key}_momentum.csv", f"universe_{market.key}.csv"):
+        table = pd.read_csv(ROOT / "config" / name, dtype=str, keep_default_na=False)
+        names.update(dict(zip(table["code"], table["name"])))
+        sectors.update(dict(zip(table["code"], table["sector"])))
+    for name in (f"{market.key}.json", f"{market.key}_momentum.json"):  # 後に読むほうを優先
+        data = read_json(DATA / name, {})
+        price_date = data.get("as_of", price_date)
+        prices.update({s["code"]: s["close"] for s in data.get("stocks", []) if s.get("close")})
+
+    facts = {code: f for code, f in facts.items() if code in names}
+    scored = fundamentals.score_universe(facts, prices, sectors, cfg, as_of)
+    stocks = []
+    for code in sorted(scored["stocks"]):
+        entry = scored["stocks"][code]
+        stocks.append(
+            {
+                "code": code,
+                "name": names[code],
+                "sector": sectors[code],
+                "s": entry["s"],
+                "c": {axis: [None if r is None else int(r) for r in results] for axis, results in entry["c"].items()},
+                "m": {key: _rounded(entry["m"][key]) for key in FUND_METRICS},
+                "fetched": facts[code].get("fetched"),
+            }
+        )
+    stats = scored["stats"]
+    write_json(
+        DATA / f"{market.key}_fund.json",
+        {
+            "market": market.key,
+            "label": market.label,
+            "universe": market.momentum_universe_name,
+            "decimals": market.decimals,
+            "as_of": price_date,
+            "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "config": cfg["fundamentals"],
+            "axes": fundamentals.AXES,
+            "checks": fundamentals.CHECKS,
+            "stats": {
+                **{k: _rounded(v) for k, v in stats.items() if k != "sector_per"},
+                "sector_per": {s: _rounded(v) for s, v in stats["sector_per"].items()},
+            },
+            "stocks": stocks,
+        },
+    )
+    scored_all = sum(1 for s in stocks if all(v is not None for v in s["s"]))
+    print(f"[{tag}] 完了: {len(stocks)} 銘柄を採点（5軸すべて採点できた {scored_all}）")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--market", required=True, choices=["jp", "us"])
-    parser.add_argument("--mode", default="all", choices=["all", "contrarian", "momentum"])
+    parser.add_argument("--mode", default="all", choices=["all", "contrarian", "momentum", "fundamentals"])
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
@@ -293,6 +374,8 @@ def main() -> int:
         code = max(code, run_contrarian(market, cfg, as_of, now, args.force))
     if args.mode in ("all", "momentum"):
         code = max(code, run_momentum(market, cfg, as_of, now, args.force))
+    if args.mode in ("all", "fundamentals"):
+        code = max(code, run_fundamentals(market, cfg, as_of, now))
     return code
 
 
