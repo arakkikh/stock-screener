@@ -389,7 +389,13 @@ function showTabs(market, mode) {
   }
 }
 
+// 画面の切り替えを続けて行うと、前の画面の読み込みが後から終わることがある。
+// いちばん新しい切り替えだけを画面に反映するための番号
+let routeToken = 0;
+
 async function route() {
+  const token = ++routeToken;
+  const stale = () => token !== routeToken;
   const [first, second, third, fourth, fifth] = decodeURIComponent(location.hash.slice(1)).split("/");
   const isPortfolio = first === "portfolio";
   const market = isPortfolio ? null : MARKETS.includes(first) ? first : store.get("market", "jp");
@@ -398,12 +404,14 @@ async function route() {
   try {
     if (isPortfolio) {
       const context = await loadPortfolioContext();
+      if (stale()) return;
       document.getElementById("as-of").textContent = "";
       if (second === "new" && MARKETS.includes(third) && fourth) {
         const kind = fifth === "m" ? "momentum" : "contrarian";
         current = context.markets[third];
         const folder = kind === "momentum" ? `${third}/m` : third;
         const chart = await getJSON(`data/${folder}/${encodeURIComponent(fourth)}.json`).catch(() => null);
+        if (stale()) return;
         renderNewPosition(app, context, third, fourth, chart, kind);
       } else {
         renderPortfolio(app, context);
@@ -413,7 +421,9 @@ async function route() {
     store.set("market", market);
     if (mode === "momentum") {
       const data = await getJSON(`data/${market}_momentum.json`);
-      current = await getJSON(`data/${market}.json`);
+      const base = await getJSON(`data/${market}.json`);
+      if (stale()) return;
+      current = base;
       document.getElementById("as-of").textContent = `${shortDate(data.as_of)} 終値時点`;
       if (third) renderMomentumDetail(app, data, third);
       else renderMomentumList(app, data);
@@ -421,14 +431,16 @@ async function route() {
     }
     if (mode === "fund") {
       const data = await getJSON(`data/${market}_fund.json`);
-      current = await getJSON(`data/${market}.json`);
+      const base = await getJSON(`data/${market}.json`);
+      // 逆張り・順張りの対象に入っている銘柄なら、そちらの詳細へのリンクを出す
+      const momentum = third ? await getJSON(`data/${market}_momentum.json`).catch(() => null) : null;
+      if (stale()) return;
+      current = base;
       document.getElementById("as-of").textContent = `${shortDate(data.as_of)} 終値時点`;
       if (third) {
-        // 逆張り・順張りの対象に入っている銘柄なら、そちらの詳細へのリンクを出す
-        const momentum = await getJSON(`data/${market}_momentum.json`).catch(() => null);
         const links = [];
         const path = encodeURIComponent(third);
-        if (current.stocks.some((s) => s.code === third)) links.push([`#${market}/${path}`, "逆張りの詳細"]);
+        if (base.stocks.some((s) => s.code === third)) links.push([`#${market}/${path}`, "逆張りの詳細"]);
         if (momentum?.stocks.some((s) => s.code === third)) links.push([`#${market}/m/${path}`, "順張りの詳細"]);
         renderFundDetail(app, data, third, links);
       } else {
@@ -436,9 +448,12 @@ async function route() {
       }
       return;
     }
+    const data = await getJSON(`data/${market}.json`);
+    if (stale()) return;
     if (current && current.market !== market) Object.assign(ui, { theme: "", query: "", listScroll: 0 });
-    current = await getJSON(`data/${market}.json`);
+    current = data;
   } catch (err) {
+    if (stale()) return;
     app.innerHTML = `<p class="pad">データを読み込めませんでした。時間をおいて開き直してください。<br><span class="small muted">${esc(err.message)}</span></p>`;
     return;
   }
