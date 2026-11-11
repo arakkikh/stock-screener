@@ -1,6 +1,9 @@
 # 株スクリーナー
 
-日本株（TOPIX Core30 + Large70）と米国株（S&P 100）を対象にした、個人用の逆張りスクリーナーです。
+日本株と米国株を対象にした、個人用の株スクリーナーです。
+
+- 逆張りモード: TOPIX Core30 + Large70 ／ S&P 100
+- 順張りモード（ミネルヴィニ式）: TOPIX 500 ／ S&P 500
 売買の自動執行はしません。判断材料を表示するだけです。
 
 **このサイトは投資助言ではありません。最終判断は自己責任で行ってください。**
@@ -18,8 +21,9 @@
 | 場所 | 内容 |
 |---|---|
 | `config/thresholds.yaml` | しきい値。すべてここに集約。`jp:` / `us:` に書くと市場ごとに上書きできる |
-| `config/universe_jp.csv`, `universe_us.csv` | 対象銘柄。`themes` 列にテーマを `|` 区切りで書ける |
-| `screener/` | 判定ロジック（市場に依存しない） |
+| `config/universe_jp.csv`, `universe_us.csv` | 逆張りの対象銘柄。`themes` 列にテーマを `|` 区切りで書ける |
+| `config/universe_jp_momentum.csv`, `universe_us_momentum.csv` | 順張りの対象銘柄 |
+| `screener/` | 判定ロジック（市場に依存しない）。順張りは `momentum.py` |
 | `markets/` | 市場ごとの違いとデータ取得 |
 | `scripts/update.py` | データ更新 |
 | `scripts/build_universe.py` | 銘柄リストを公式の構成銘柄から作り直す |
@@ -44,14 +48,21 @@ python3 -m venv .venv
 # 手元で画面を見る → ブラウザで http://localhost:8000
 python3 -m http.server 8000 --directory docs
 
-# 銘柄の入れ替えを反映
+# 銘柄の入れ替えを反映（momentum を付けると順張り用）
 .venv/bin/python scripts/build_universe.py jp
+.venv/bin/python scripts/build_universe.py jp momentum
 ```
 
 ## しきい値を変えるには
 
 `config/thresholds.yaml` を書き換えて保存し、GitHub に反映（push）します。次のデータ更新から新しい値で判定されます。
 「仮置き」と書いてある値は、バックテスト（フェーズ4）で見直す前提のものです。
+
+## 順張りモードについて
+
+- トレンドテンプレート8条件、相対強度（RS）、VCP を判定します。しきい値は `config/thresholds.yaml` の `momentum:` にあります。
+- チャート用のデータと決算日は、8条件すべてに合格した銘柄だけ作ります（リポジトリが大きくなりすぎないようにするため）。
+- 順張りの更新に失敗しても、逆張りの結果は保存されます。
 
 ## データについて
 

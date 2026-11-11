@@ -5,6 +5,7 @@ import { esc, price, number, pct, signClass, shortDate, todayISO, daysBetween } 
 import { drawChart, legendHTML } from "./chart.js";
 import { earningsInfo as earningsOf, overrideKey } from "./earnings.js";
 import { renderPortfolio, renderNewPosition, initPortfolio, loadPositions } from "./portfolio.js";
+import { renderMomentumList, renderMomentumDetail, initMomentum } from "./momentum.js";
 
 const MARKETS = ["jp", "us"];
 const app = document.getElementById("app");
@@ -364,30 +365,56 @@ async function renderDetail(d, code) {
 
 async function loadPortfolioContext() {
   const [jp, us] = await Promise.all(MARKETS.map((m) => getJSON(`data/${m}.json`)));
+  const [mjp, mus] = await Promise.all(MARKETS.map((m) => getJSON(`data/${m}_momentum.json`).catch(() => null)));
   const fx = await getJSON("data/fx.json").catch(() => null);
-  return { markets: { jp, us }, fx };
+  return { markets: { jp, us }, momentum: { jp: mjp, us: mus }, fx };
+}
+
+// 上部のタブ（市場）と、その下の切り替え（逆張り／順張り）の表示を合わせる
+function showTabs(market, mode) {
+  for (const tab of document.querySelectorAll("#market-tabs a")) {
+    tab.classList.toggle("on", tab.dataset.market === (market ?? "portfolio"));
+    if (MARKETS.includes(tab.dataset.market)) tab.href = `#${tab.dataset.market}${mode === "momentum" ? "/m" : ""}`;
+  }
+  const modes = document.getElementById("mode-tabs");
+  modes.hidden = !market;
+  for (const tab of modes.querySelectorAll("a")) {
+    tab.classList.toggle("on", tab.dataset.mode === mode);
+    tab.href = `#${market}${tab.dataset.mode === "momentum" ? "/m" : ""}`;
+  }
 }
 
 async function route() {
-  const [first, second, third, fourth] = decodeURIComponent(location.hash.slice(1)).split("/");
+  const [first, second, third, fourth, fifth] = decodeURIComponent(location.hash.slice(1)).split("/");
   const isPortfolio = first === "portfolio";
   const market = isPortfolio ? null : MARKETS.includes(first) ? first : store.get("market", "jp");
-  for (const tab of document.querySelectorAll("#market-tabs a")) tab.classList.toggle("on", tab.dataset.market === (market ?? "portfolio"));
+  const mode = !isPortfolio && second === "m" ? "momentum" : "contrarian";
+  showTabs(market, mode);
   try {
     if (isPortfolio) {
       const context = await loadPortfolioContext();
       document.getElementById("as-of").textContent = "";
       if (second === "new" && MARKETS.includes(third) && fourth) {
+        const kind = fifth === "m" ? "momentum" : "contrarian";
         current = context.markets[third];
-        const chart = await getJSON(`data/${third}/${encodeURIComponent(fourth)}.json`).catch(() => null);
-        renderNewPosition(app, context, third, fourth, chart);
+        const folder = kind === "momentum" ? `${third}/m` : third;
+        const chart = await getJSON(`data/${folder}/${encodeURIComponent(fourth)}.json`).catch(() => null);
+        renderNewPosition(app, context, third, fourth, chart, kind);
       } else {
         renderPortfolio(app, context);
       }
       return;
     }
-    if (current && current.market !== market) Object.assign(ui, { theme: "", query: "", listScroll: 0 });
     store.set("market", market);
+    if (mode === "momentum") {
+      const data = await getJSON(`data/${market}_momentum.json`);
+      current = await getJSON(`data/${market}.json`);
+      document.getElementById("as-of").textContent = `${shortDate(data.as_of)} 終値時点`;
+      if (third) renderMomentumDetail(app, data, third);
+      else renderMomentumList(app, data);
+      return;
+    }
+    if (current && current.market !== market) Object.assign(ui, { theme: "", query: "", listScroll: 0 });
     current = await getJSON(`data/${market}.json`);
   } catch (err) {
     app.innerHTML = `<p class="pad">データを読み込めませんでした。時間をおいて開き直してください。<br><span class="small muted">${esc(err.message)}</span></p>`;
@@ -406,7 +433,7 @@ app.addEventListener("click", async (event) => {
     refreshList();
     return;
   }
-  if (event.target.closest("a.row")) ui.listScroll = window.scrollY;
+  if (event.target.closest("#list a.row")) ui.listScroll = window.scrollY;
   const action = event.target.closest("[data-action='index-chart']");
   if (action) {
     const box = document.getElementById("index-chart");
@@ -453,5 +480,6 @@ app.addEventListener("change", (event) => {
 });
 
 initPortfolio(app, route);
+initMomentum(app, getJSON);
 window.addEventListener("hashchange", route);
 route();

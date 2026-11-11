@@ -145,3 +145,11 @@ details.closed summary::-webkit-details-marker { display: none; }
 [hidden] { display: none !important; }
 table.kv.exit td:first-child { width: auto; }
 table.kv.exit td:last-child { white-space: nowrap; max-width: none; }
+
+/* 逆張り／順張りの切り替え */
+.modes { display: flex; gap: 4px; padding: 6px 0 8px; }
+.modes a {
+  flex: 1; text-align: center; padding: 5px 0; border-radius: 8px; text-decoration: none;
+  color: var(--muted); background: var(--chip); font-size: 13px; font-weight: 600;
+}
+.modes a.on { background: var(--text); color: var(--card); }

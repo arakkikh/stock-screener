@@ -20,6 +20,8 @@ class Market:
     vol_url: str             # 恐怖指数を確認できるページ
     fear_greed_url: str      # Fear & Greed を確認できるページ（手入力用）
     settle_minutes: int = 60  # 引けからこの分数が過ぎたら、その日のデータを確定とみなす
+    universe_name: str = ""           # 逆張りの対象銘柄の呼び名
+    momentum_universe_name: str = ""  # 順張りの対象銘柄の呼び名
 
     def ticker(self, code: str) -> str:
         return code + self.ticker_suffix

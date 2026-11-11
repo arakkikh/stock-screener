@@ -30,8 +30,13 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: データ取得と判定
-        run: python scripts/update.py --market jp ${{ inputs.force && '--force' || '' }}
+      - name: データ取得と判定（逆張り）
+        run: python scripts/update.py --market jp --mode contrarian ${{ inputs.force && '--force' || '' }}
+      # 順張りは対象が約500銘柄と多い。失敗しても逆張りの結果は保存する
+      - name: データ取得と判定（順張り）
+        id: momentum
+        continue-on-error: true
+        run: python scripts/update.py --market jp --mode momentum ${{ inputs.force && '--force' || '' }}
       - name: 結果を保存
         run: |
           git config user.name "github-actions[bot]"
@@ -44,3 +49,8 @@ jobs:
           git commit -m "データ更新: jp $(date -u +%F)"
           git pull --rebase
           git push
+      - name: 順張りの更新に失敗していたら知らせる
+        if: steps.momentum.outcome == 'failure'
+        run: |
+          echo "順張りモードのデータ更新に失敗しました（逆張りは保存済み）"
+          exit 1

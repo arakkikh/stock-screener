@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from . import indicators as ind
+from . import momentum as mo
 from . import signals as sig
 
 
@@ -163,3 +164,82 @@ def sector_trends(closes: pd.DataFrame, sector_of: Dict[str, str], cfg: dict) ->
             "downtrend": bool(index.iloc[-1] < mid < long_),
         }
     return result
+
+
+# ---------------------------------------------------------------- 順張りモード
+
+def momentum_chart(df: pd.DataFrame, cfg: dict, digits: int, days: int = 260) -> dict:
+    """順張り用のチャートデータ（直近約1年。50日・150日・200日線つき）。"""
+    ma = cfg["momentum"]["ma"]
+    close = df["close"]
+    lines = {key: ind.sma(close, ma[name]) for key, name in (("m_f", "fast"), ("m_m", "mid"), ("m_s", "slow"))}
+    part = df.iloc[-days:]
+    return {
+        "t": _dates(part.index),
+        "o": _column(part["open"], digits),
+        "h": _column(part["high"], digits),
+        "l": _column(part["low"], digits),
+        "c": _column(part["close"], digits),
+        "v": [None if pd.isna(v) else int(v) for v in part["volume"].to_numpy()],
+        **{key: _column(line.iloc[-days:], digits) for key, line in lines.items()},
+    }
+
+
+def analyze_momentum(df: pd.DataFrame, rs, cfg: dict, digits: int) -> Tuple[Optional[dict], Optional[dict]]:
+    """1銘柄分の順張り判定をまとめる。戻り値は (一覧用の要約, チャート用のデータ)。
+
+    データが足りない銘柄は (None, None)。チャートはトレンドテンプレート合格銘柄だけ作る。
+    VCP もトレンドテンプレート合格銘柄だけを対象にする。
+    """
+    template = mo.trend_template(df, rs, cfg)
+    if template is None:
+        return None, None
+    m = cfg["momentum"]
+    dates = _dates(df.index)
+    close = df["close"]
+    average = df["volume"].rolling(m["vcp"]["volume_avg_days"]).mean().shift(1).iloc[-1]
+    recent = mo.ma_break_with_volume(df, cfg).iloc[-cfg["display"]["recent_days"] :]
+    broke = [d.strftime("%Y-%m-%d") for d in recent.index[recent.to_numpy()]]
+
+    summary = {
+        "date": dates[-1],
+        "close": _num(close.iloc[-1], digits),
+        "change_pct": _num(ind.change_pct(close).iloc[-1], 2),
+        "rs": None if rs is None or pd.isna(rs) else int(rs),
+        "conds": [int(c) for c in template["conds"]],
+        "count": template["count"],
+        "passed": template["passed"],
+        "ma_fast": _num(template["ma_fast"], digits),
+        "ma_mid": _num(template["ma_mid"], digits),
+        "ma_slow": _num(template["ma_slow"], digits),
+        "from_low_pct": _num(template["from_low_pct"], 1),
+        "from_high_pct": _num(template["from_high_pct"], 1),
+        "volume_ratio": _num(df["volume"].iloc[-1] / average if average else None, 2),
+        "ma_break": broke[-1] if broke else None,  # 出来高を伴って50日線を割った日（直近のみ）
+        "vcp": None,
+    }
+    if not template["passed"]:
+        return summary, None
+
+    vcp = mo.find_vcp(df, cfg)
+    if vcp is not None:
+        summary["vcp"] = {
+            "status": vcp["status"],
+            "pivot": _num(vcp["pivot"], digits),
+            "pivot_date": dates[vcp["pivot_i"]],
+            "to_pivot_pct": _num((vcp["pivot"] / close.iloc[-1] - 1) * 100, 1),
+            "volume_dry": vcp["volume_dry"],
+            "breakout_date": None if vcp["breakout_i"] is None else dates[vcp["breakout_i"]],
+            "volume_ratio": _num(vcp["volume_ratio"], 2),
+            "legs": [
+                {
+                    "hd": dates[leg["high_i"]],
+                    "ld": dates[leg["low_i"]],
+                    "high": _num(leg["high"], digits),
+                    "low": _num(leg["low"], digits),
+                    "depth": _num(leg["depth"], 1),
+                }
+                for leg in vcp["legs"]
+            ],
+        }
+    return summary, momentum_chart(df, cfg, digits)

@@ -2,7 +2,7 @@
 import { store, exportAll, importAll } from "./store.js";
 import { esc, price, number, pct, signClass, shortDate, todayISO } from "./format.js";
 import { LABEL } from "./labels.js";
-import { REASON_KEYS, reasonLabel, exitPlan, findDropReference, validatePosition } from "./exits.js";
+import { REASONS_BY_KIND, reasonLabel, exitPlan, findDropReference, validatePosition } from "./exits.js";
 import { pnl, ytd } from "./ledger.js";
 import { earningsInfo } from "./earnings.js";
 
@@ -11,7 +11,15 @@ export const loadPositions = () => store.get(KEY, []);
 const savePositions = (list) => store.set(KEY, list);
 const SELL_REASONS = ["利確（ルールどおり）", "損切り（ルールどおり）", "悪材料が出たため", "決算をまたがないため", "ルール外（理由のすり替え）"];
 
-let ctx = null; // { markets: { jp, us }, fx }
+let ctx = null; // { markets: { jp, us }, momentum: { jp, us }, fx }
+
+// ポジションの銘柄データを探す。順張りで買ったものは、順張り用のデータ（対象銘柄が広い）から探す
+function lookup(pos) {
+  const momentum = ctx.momentum?.[pos.market]?.stocks.find((s) => s.code === pos.code);
+  const contrarian = ctx.markets[pos.market].stocks.find((s) => s.code === pos.code);
+  if (pos.reason === "mo" || pos.kind === "momentum") return { stock: momentum ?? contrarian, momentum: Boolean(momentum) };
+  return { stock: contrarian ?? momentum, momentum: !contrarian && Boolean(momentum) };
+}
 
 const yen = (value) => (value == null ? "—" : `${value < 0 ? "−" : value > 0 ? "+" : ""}${Math.abs(Math.round(value)).toLocaleString("ja-JP")}円`);
 const money = (value, market) => (market === "us" ? `${value < 0 ? "−" : value > 0 ? "+" : ""}$${number(Math.abs(value), 2)}` : yen(value));
@@ -63,13 +71,16 @@ function positionAlerts(pos, d, stock, plan) {
   const out = [];
   if (pos.badNews) out.push(["danger", "悪材料あり：チャートに関係なく売る"]);
   if (!stock) return out;
-  if (stock.warnings.includes("two_black")) out.push(["danger", "最優先で損切り：下放れ二本黒"]);
+  if (stock.warnings?.includes("two_black")) out.push(["danger", "最優先で損切り：下放れ二本黒"]);
   if (plan.stop.hit) out.push(["danger", `損切りの条件に到達：${plan.stop.text}`]);
+  else if (plan.stop.warn) out.push(["warn", `損切りラインに接近：買値から ${d.config.momentum.exit.stop_warn_pct}% を下回りました`]);
+  if (stock.ma_break) out.push(["warn", `${d.config.momentum.ma.fast}日線割れ：${shortDate(stock.ma_break)} に出来高を伴って割りました`]);
+  if (pos.reason === "mo" && stock.passed === false) out.push(["info", `トレンドテンプレートから外れています（${stock.count}/8）`]);
   if (plan.take.hit) out.push(["entry", `利確の条件に到達：${plan.take.text}`]);
   const earn = earningsInfo(d.market, stock);
   if (earn.soon) out.push(["warn", `決算はまたがない：決算発表は ${shortDate(earn.next)} の予定`]);
-  if (stock.trend.exit_warning) out.push(["warn", "手仕舞い警戒（トレンド継続モード）"]);
-  const warns = stock.warnings.filter((k) => k !== "two_black").map((k) => LABEL[k]);
+  if (stock.trend?.exit_warning) out.push(["warn", "手仕舞い警戒（トレンド継続モード）"]);
+  const warns = (stock.warnings ?? []).filter((k) => k !== "two_black").map((k) => LABEL[k]);
   if (warns.length) out.push(["warn", `警戒サイン：${warns.join("・")}`]);
   return out;
 }
@@ -82,7 +93,7 @@ function exitRow(title, item, market) {
 
 function openCardHTML(pos) {
   const d = ctx.markets[pos.market];
-  const stock = d.stocks.find((s) => s.code === pos.code);
+  const { stock, momentum } = lookup(pos);
   const plan = exitPlan(pos, stock, d.config, todayISO());
   const gain = stock ? (stock.close / pos.buyPrice - 1) * 100 : null;
   const amount = stock ? (stock.close - pos.buyPrice) * pos.qty : null;
@@ -92,7 +103,7 @@ function openCardHTML(pos) {
   return `<section class="card" data-pos="${esc(pos.id)}">
     <div class="detail-head">
       <div><div class="small muted">${esc(pos.code)}　${d.label}</div>
-        <h2><a href="#${pos.market}/${encodeURIComponent(pos.code)}">${esc(pos.name)}</a></h2></div>
+        <h2><a href="#${pos.market}/${momentum ? "m/" : ""}${encodeURIComponent(pos.code)}">${esc(pos.name)}</a></h2></div>
       <div class="num" style="text-align:right">${
         stock
           ? `<div><strong>${price(stock.close, pos.market)}</strong></div>
@@ -200,32 +211,19 @@ function updateReasonFields(d, chart) {
   }
 }
 
-export function renderNewPosition(app, context, market, code, chart) {
+export function renderNewPosition(app, context, market, code, chart, kind = "contrarian") {
   ctx = context;
   const d = ctx.markets[market];
-  const s = d.stocks.find((x) => x.code === code);
+  const isMomentum = kind === "momentum";
+  const s = (isMomentum ? ctx.momentum[market] : d)?.stocks.find((x) => x.code === code);
   if (!s) {
     app.innerHTML = `<p class="pad">銘柄が見つかりません。<a href="#portfolio">戻る</a></p>`;
     return;
   }
-  const options = REASON_KEYS.map((k) => `<option value="${k}">${esc(reasonLabel(k, d.config))}</option>`).join("");
-  app.innerHTML = `
-    <a class="btn back" href="#${market}/${encodeURIComponent(code)}">← 銘柄へ戻る</a>
-    <section class="card">
-      <div class="small muted">${esc(s.code)}　${d.label}</div>
-      <h2>${esc(s.name)} のポジションを登録</h2>
-      <div class="alert info">迷ったら入らない。入るなら小ロット。</div>
-      <form class="form" id="pf-new" data-market="${market}" data-code="${esc(code)}" novalidate>
-        <div class="grid2">
-          <div><label for="pf-date">買った日</label><input type="date" id="pf-date" value="${todayISO()}"></div>
-          <div><label for="pf-price">買値</label><input type="number" id="pf-price" step="any" inputmode="decimal" value="${s.close ?? ""}"></div>
-          <div><label for="pf-qty">株数</label><input type="number" id="pf-qty" step="any" inputmode="decimal" placeholder="例: 100"></div>
-        </div>
-
-        <label for="pf-reason">買った理由（あとから変更できません）</label>
-        <select id="pf-reason"><option value="">選んでください</option>${options}</select>
-        <p class="small muted">買う理由と売る理由は、必ず同じ種類にします。ここで選んだ理由に合わせて、利確と損切りの条件が決まります。</p>
-
+  const options = REASONS_BY_KIND[kind].map((k) => `<option value="${k}">${esc(reasonLabel(k, d.config))}</option>`).join("");
+  const rule = d.config.momentum.exit, mma = d.config.momentum.ma;
+  // 逆張りの理由ごとの説明は、逆張りの銘柄データ（25日線やバンドの値）があるときだけ出す
+  const contrarianBlocks = isMomentum ? "" : `
         <div data-for="c1" hidden>
           <label for="pf-target">利確の水準（この値段まで戻したら利確）</label>
           <input type="number" id="pf-target" step="any" inputmode="decimal">
@@ -241,6 +239,30 @@ export function renderNewPosition(app, context, market, code, chart) {
           <select id="pf-aim"><option value="">選んでください</option><option value="2">−2σ 狙い</option><option value="3">−3σ 狙い</option></select>
           <p class="small">利確: ボリンジャーバンドの中央線まで戻したとき（現在 ${price(s.levels.bb_mid, market)}）<br>
             損切り: −2σ狙いの場合は、−3σ（現在 ${price(s.levels.bb_l3, market)}）を終値で下に抜けたとき。−3σ狙いの場合は、シナリオが崩れたとき</p>
+        </div>`;
+
+  app.innerHTML = `
+    <a class="btn back" href="#${market}/${isMomentum ? "m/" : ""}${encodeURIComponent(code)}">← 銘柄へ戻る</a>
+    <section class="card">
+      <div class="small muted">${esc(s.code)}　${d.label}</div>
+      <h2>${esc(s.name)} のポジションを登録</h2>
+      <div class="alert info">迷ったら入らない。入るなら小ロット。</div>
+      <form class="form" id="pf-new" data-market="${market}" data-code="${esc(code)}" novalidate>
+        <div class="grid2">
+          <div><label for="pf-date">買った日</label><input type="date" id="pf-date" value="${todayISO()}"></div>
+          <div><label for="pf-price">買値</label><input type="number" id="pf-price" step="any" inputmode="decimal" value="${s.close ?? ""}"></div>
+          <div><label for="pf-qty">株数</label><input type="number" id="pf-qty" step="any" inputmode="decimal" placeholder="例: 100"></div>
+        </div>
+
+        <label for="pf-reason">買った理由（あとから変更できません）</label>
+        <select id="pf-reason"><option value="">選んでください</option>${options}</select>
+        <p class="small muted">買う理由と売る理由は、必ず同じ種類にします。ここで選んだ理由に合わせて、利確と損切りの条件が決まります。</p>
+
+        ${contrarianBlocks}
+        <div data-for="mo" hidden>
+          <p class="small">損切り: 買値から ${rule.stop_loss_pct}%（${rule.stop_warn_pct}% で警告）<br>
+            警戒: ${mma.fast}日線を出来高を伴って割ったとき<br>
+            利確: 条件は決めていません（自分で判断）${s.vcp ? `<br>ピボット: ${price(s.vcp.pivot, market)}` : ""}</p>
         </div>
         <div data-for="theme" hidden>
           <label for="pf-deadline">手仕舞いの期限（自分で決める）</label>
@@ -259,6 +281,10 @@ export function renderNewPosition(app, context, market, code, chart) {
     </section>`;
   window.scrollTo(0, 0);
   const form = document.getElementById("pf-new");
+  if (isMomentum) {
+    document.getElementById("pf-reason").value = "mo";
+    updateReasonFields(d, chart);
+  }
   form.addEventListener("input", (event) => {
     if (event.target.id === "pf-target") event.target.dataset.edited = "1";
     if (event.target.id === "pf-date" || event.target.id === "pf-reason") updateReasonFields(d, chart);
@@ -268,7 +294,7 @@ export function renderNewPosition(app, context, market, code, chart) {
     const reason = val("pf-reason");
     const pos = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-      market, code, name: s.name,
+      market, code, name: s.name, kind,
       buyDate: val("pf-date"), buyPrice: num("pf-price"), qty: num("pf-qty"), reason,
       memo: { why: val("pf-why").trim(), basis: val("pf-basis").trim(), lose: val("pf-lose").trim() },
       badNews: false, createdAt: new Date().toISOString(),

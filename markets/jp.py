@@ -14,4 +14,6 @@ MARKET = Market(
     vol_name="日経VI",
     vol_url="https://indexes.nikkei.co.jp/nkave/index/profile?idx=nk225vi",
     fear_greed_url="",
+    universe_name="TOPIX Core30 + Large70",
+    momentum_universe_name="TOPIX 500",
 )

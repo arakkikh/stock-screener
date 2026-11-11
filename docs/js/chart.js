@@ -43,7 +43,9 @@ function buildMarkers(marks, labelFrom) {
   return markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
 }
 
-export function drawChart(el, data, { digits = 1, showBands = true, bars = 90, labelDays = 10 } = {}) {
+// lines = 描く線の一覧 [{ key, color, width, style }]（省略すると逆張り用の線）
+// priceLines = 水平線 [{ price, title, color }]、markers = 印（省略すると data.marks から作る）
+export function drawChart(el, data, { digits = 1, showBands = true, bars = 90, labelDays = 10, lines = null, priceLines = [], markers = null } = {}) {
   el.innerHTML = "";
   const text = cssVar("--text"), grid = cssVar("--line"), up = cssVar("--up"), down = cssVar("--down");
   const chart = LightweightCharts.createChart(el, {
@@ -68,14 +70,24 @@ export function drawChart(el, data, { digits = 1, showBands = true, bars = 90, l
     chart
       .addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: format, ...extra })
       .setData(points(data.t, values));
-  line(data.ma_s, LINE_COLORS.ma_s, { lineWidth: 2 });
-  line(data.ma_m, LINE_COLORS.ma_m, { lineWidth: 2 });
-  line(data.ma_l, LINE_COLORS.ma_l, { lineWidth: 2 });
-  if (showBands) {
-    const dashed = { lineStyle: LightweightCharts.LineStyle.Dashed };
-    line(data.bb_l2, LINE_COLORS.band, dashed);
-    line(data.bb_l3, LINE_COLORS.band, { lineStyle: LightweightCharts.LineStyle.Dotted });
-    line(data.bb_u2, LINE_COLORS.band, dashed);
+  const dashed = LightweightCharts.LineStyle.Dashed, dotted = LightweightCharts.LineStyle.Dotted;
+  const defaults = [
+    { key: "ma_s", color: LINE_COLORS.ma_s, width: 2 },
+    { key: "ma_m", color: LINE_COLORS.ma_m, width: 2 },
+    { key: "ma_l", color: LINE_COLORS.ma_l, width: 2 },
+    ...(showBands
+      ? [
+          { key: "bb_l2", color: LINE_COLORS.band, style: dashed },
+          { key: "bb_l3", color: LINE_COLORS.band, style: dotted },
+          { key: "bb_u2", color: LINE_COLORS.band, style: dashed },
+        ]
+      : []),
+  ];
+  for (const item of lines ?? defaults) {
+    if (data[item.key]) line(data[item.key], item.color, { lineWidth: item.width ?? 1, ...(item.style != null ? { lineStyle: item.style } : {}) });
+  }
+  for (const item of priceLines) {
+    candles.createPriceLine({ price: item.price, color: item.color, lineWidth: 1, lineStyle: dashed, axisLabelVisible: true, title: item.title });
   }
 
   const volume = chart.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false });
@@ -85,10 +97,11 @@ export function drawChart(el, data, { digits = 1, showBands = true, bars = 90, l
     data.t.map((time, i) => ({ time, value: data.v[i] ?? 0, color: (data.c[i] >= data.o[i] ? up : down) + "66" }))
   );
 
-  if (data.marks) candles.setMarkers(buildMarkers(data.marks, data.t[Math.max(0, data.t.length - labelDays)]));
+  if (markers) candles.setMarkers(markers);
+  else if (data.marks) candles.setMarkers(buildMarkers(data.marks, data.t[Math.max(0, data.t.length - labelDays)]));
 
   const n = data.t.length;
-  chart.timeScale().setVisibleLogicalRange({ from: n - bars, to: n + 2 });
+  chart.timeScale().setVisibleLogicalRange({ from: n - bars, to: n + (priceLines.length ? 8 : 2) });
   return chart;
 }
 
@@ -102,4 +115,9 @@ export function legendHTML(cfg, showBands = true) {
     (showBands ? item(LINE_COLORS.band, `±2σ・−3σ（${cfg.buy.bb_period}日）`) : "") +
     `</div>`
   );
+}
+
+// 線の色と名前の一覧から凡例を作る
+export function legendItems(items) {
+  return `<div class="legend">${items.map(([color, label]) => `<span><i style="background:${color}"></i>${label}</span>`).join("")}</div>`;
 }

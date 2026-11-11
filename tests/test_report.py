@@ -167,3 +167,52 @@ def test_remembered_date_moves_to_past_and_new_one_becomes_next():
 def test_failed_fetch_keeps_what_we_knew():
     entry = {"next": "2026-11-18", "past": ["2026-08-20"]}
     assert merge(entry, None) == entry
+
+
+# ---- 順張りモードの出力 ----
+
+def volume_df(close, volume):
+    df = price_df(close)
+    df["volume"] = volume
+    return df
+
+
+def test_momentum_summary_for_passing_stock():
+    summary, chart = report.analyze_momentum(price_df(list(np.linspace(100, 200, 300))), 90, cfg(), 1)
+    json.dumps([summary, chart], allow_nan=False)
+    assert summary["passed"] and summary["count"] == 8 and summary["conds"] == [1] * 8
+    assert summary["rs"] == 90
+    assert len(chart["t"]) == 260 and chart["m_s"][-1] is not None
+
+
+def test_momentum_no_chart_or_vcp_for_failing_stock():
+    summary, chart = report.analyze_momentum(price_df(list(np.linspace(100, 200, 300))), 50, cfg(), 1)
+    assert summary["count"] == 7 and not summary["passed"]
+    assert chart is None and summary["vcp"] is None
+
+
+def test_momentum_skips_stock_without_enough_history():
+    assert report.analyze_momentum(price_df(list(np.linspace(100, 200, 200))), 90, cfg(), 1) == (None, None)
+
+
+def test_momentum_reports_vcp_with_dates():
+    # 1年かけて 40→100 と上げたあと、−20% → −9% → −4% と押しが浅くなる
+    points = [(0, 40), (250, 100), (260, 80), (270, 98), (278, 89), (286, 97), (292, 93), (298, 96)]
+    days, prices = zip(*points)
+    close = list(np.interp(range(days[-1] + 1), days, prices))
+    volume = [1000.0] * 270 + [600.0] * 16 + [300.0] * 13
+    summary, chart = report.analyze_momentum(volume_df(close, volume), 95, cfg(), 1)
+    json.dumps([summary, chart], allow_nan=False)
+    vcp = summary["vcp"]
+    assert summary["passed"]
+    assert vcp["status"] == "forming" and len(vcp["legs"]) == 3
+    assert vcp["pivot"] == 97.5 and vcp["to_pivot_pct"] > 0
+    assert vcp["legs"][0]["depth"] > vcp["legs"][1]["depth"] > vcp["legs"][2]["depth"]
+    assert vcp["pivot_date"] == vcp["legs"][-1]["hd"] and vcp["pivot_date"] in chart["t"]
+
+
+def test_momentum_reports_recent_ma_break():
+    close = list(np.linspace(100, 200, 299)) + [150.0]
+    summary, _ = report.analyze_momentum(volume_df(close, [1000.0] * 299 + [3000.0]), 90, cfg(), 1)
+    assert summary["ma_break"] == summary["date"]
+    assert summary["volume_ratio"] == 3.0

@@ -1,7 +1,10 @@
 """株価を取得して判定し、画面用の JSON を docs/data に書き出す。
 
 使い方:  python scripts/update.py --market jp   （または us）
-  --force を付けると、新しい営業日のデータがなくても作り直す。
+  --mode contrarian   逆張りだけ更新（docs/data/jp.json など）
+  --mode momentum     順張りだけ更新（docs/data/jp_momentum.json など）
+  --mode all          両方（既定）
+  --force             新しい営業日のデータがなくても作り直す
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 import markets  # noqa: E402
 from markets import fetch  # noqa: E402
-from screener import report  # noqa: E402
+from screener import momentum, report  # noqa: E402
 from screener.config import load_thresholds  # noqa: E402
 
 DATA = ROOT / "docs" / "data"
@@ -72,21 +75,12 @@ def earnings_summary(market, entry: dict) -> dict:
     return {"next": nxt, "prev_session": prev, "last": past[-1] if past else None}
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--market", required=True, choices=["jp", "us"])
-    parser.add_argument("--force", action="store_true")
-    args = parser.parse_args()
-
-    market = markets.get(args.market)
-    cfg = load_thresholds(market.key)
+def run_contrarian(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: bool) -> int:
+    """逆張りスクリーナーのデータを更新する。戻り値は終了コード（0 = 成功）。"""
     folder = DATA / market.key
     summary_path = DATA / f"{market.key}.json"
     previous = read_json(summary_path, {})
-
-    now = dt.datetime.now(dt.timezone.utc)
-    as_of = fetch.last_completed_session(market, now)
-    if previous.get("as_of") == as_of.isoformat() and not args.force:
+    if previous.get("as_of") == as_of.isoformat() and not force:
         print(f"[{market.key}] {as_of} のデータは作成済みです（休場日などで新しい営業日がありません）")
         return 0
 
@@ -182,6 +176,124 @@ def main() -> int:
 
     print(f"[{market.key}] 完了: {len(charts)} 銘柄を更新、取得失敗 {failed or 'なし'}、最新日のデータなし {stale or 'なし'}")
     return 0
+
+
+def run_momentum(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: bool) -> int:
+    """順張りモードのデータを更新する。戻り値は終了コード（0 = 成功）。
+
+    対象銘柄が多いので、チャート用ファイルと決算日はトレンドテンプレート合格銘柄だけ作る。
+    """
+    tag = f"{market.key}・順張り"
+    folder = DATA / market.key / "m"
+    summary_path = DATA / f"{market.key}_momentum.json"
+    previous = read_json(summary_path, {})
+    if previous.get("as_of") == as_of.isoformat() and not force:
+        print(f"[{tag}] {as_of} のデータは作成済みです")
+        return 0
+
+    universe = pd.read_csv(
+        ROOT / "config" / f"universe_{market.key}_momentum.csv", dtype=str, keep_default_na=False
+    )
+    tickers = {code: market.ticker(code) for code in universe["code"]}
+    print(f"[{tag}] {as_of} 時点のデータを取得します（{len(tickers)} 銘柄）")
+    prices = fetch.download_daily(list(tickers.values()), as_of)
+
+    frames = {code: prices[t] for code, t in tickers.items() if t in prices}
+    closes = pd.DataFrame({code: df["close"] for code, df in frames.items()})
+    ratings = momentum.rs_ratings(momentum.rs_scores(closes, cfg)) if len(closes.columns) else {}
+
+    old_stocks = {s["code"]: s for s in previous.get("stocks", [])}
+    stocks, charts, failed, skipped = [], {}, [], []
+    for row in universe.itertuples(index=False):
+        base = {
+            "code": row.code,
+            "name": row.name,
+            "sector": row.sector,
+            "themes": [t for t in row.themes.split("|") if t],
+        }
+        df = frames.get(row.code)
+        old = old_stocks.get(row.code)
+        if df is None:
+            failed.append(row.code)
+            if old:
+                stocks.append({**old, **base, "stale": True})
+            continue
+        if old and old.get("date", "") > df.index[-1].strftime("%Y-%m-%d"):
+            stocks.append({**old, **base, "stale": old["date"] != as_of.isoformat()})
+            continue
+        summary, chart = report.analyze_momentum(df, ratings.get(row.code), cfg, market.decimals)
+        if summary is None:
+            skipped.append(row.code)  # 上場から1年未満などで、判定に必要な日数がない
+            continue
+        if chart is not None:
+            charts[row.code] = chart
+        stocks.append({**base, **summary, "stale": summary["date"] != as_of.isoformat()})
+
+    stale = [s["code"] for s in stocks if s["stale"]]
+    if len(failed) > len(universe) / 2 or len(stale) > len(universe) / 2:
+        print(
+            f"[{tag}] 取得失敗 {len(failed)} 銘柄、{as_of} のデータがない銘柄 {len(stale)} 銘柄。"
+            "取得元の不調とみなして更新を中止します（前回のデータはそのまま残ります）",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 決算日は合格銘柄だけ取得する（1銘柄ずつ問い合わせるため）
+    passed = {s["code"]: tickers[s["code"]] for s in stocks if s.get("passed")}
+    earnings = update_earnings(market, passed, as_of, folder)
+    earnings = {code: entry for code, entry in earnings.items() if code in passed}
+    for stock in stocks:
+        entry = earnings.get(stock["code"])
+        stock["earnings"] = earnings_summary(market, entry) if entry else None
+
+    folder.mkdir(parents=True, exist_ok=True)
+    for path in folder.glob("*.json"):  # 合格から外れた銘柄のチャートは消す
+        if path.stem not in charts and not path.stem.startswith("_"):
+            path.unlink()
+    for code, chart in charts.items():
+        write_json(folder / f"{code}.json", {"code": code, **chart})
+    write_json(folder / "_earnings.json", earnings)
+    write_json(
+        summary_path,
+        {
+            "market": market.key,
+            "label": market.label,
+            "universe": market.momentum_universe_name,
+            "currency": market.currency,
+            "decimals": market.decimals,
+            "as_of": as_of.isoformat(),
+            "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "config": cfg,
+            "stocks": stocks,
+            "failed": failed,
+            "skipped": skipped,
+        },
+    )
+    vcp = sum(1 for s in stocks if s.get("vcp"))
+    print(
+        f"[{tag}] 完了: 判定 {len(stocks)} 銘柄、全条件合格 {len(passed)}、VCP {vcp}、"
+        f"取得失敗 {len(failed)}、日数不足 {len(skipped)}、最新日のデータなし {len(stale)}"
+    )
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--market", required=True, choices=["jp", "us"])
+    parser.add_argument("--mode", default="all", choices=["all", "contrarian", "momentum"])
+    parser.add_argument("--force", action="store_true")
+    args = parser.parse_args()
+
+    market = markets.get(args.market)
+    cfg = load_thresholds(market.key)
+    now = dt.datetime.now(dt.timezone.utc)
+    as_of = fetch.last_completed_session(market, now)
+    code = 0
+    if args.mode in ("all", "contrarian"):
+        code = max(code, run_contrarian(market, cfg, as_of, now, args.force))
+    if args.mode in ("all", "momentum"):
+        code = max(code, run_momentum(market, cfg, as_of, now, args.force))
+    return code
 
 
 if __name__ == "__main__":

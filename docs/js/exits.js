@@ -1,7 +1,10 @@
 // 出口ルール。「買った理由」ごとに、利確と損切りの条件を決める。
 // 画面に依存しない計算だけを置く（tests/js でテストする）。
 
-export const REASON_KEYS = ["c1", "c2", "c3", "theme"];
+export const REASON_KEYS = ["c1", "c2", "c3", "theme", "mo"];
+
+// 逆張りと順張りは考え方が逆なので、選べる「買った理由」を分ける
+export const REASONS_BY_KIND = { contrarian: ["c1", "c2", "c3", "theme"], momentum: ["mo", "theme"] };
 
 export function reasonLabel(key, cfg, aim) {
   switch (key) {
@@ -9,6 +12,7 @@ export function reasonLabel(key, cfg, aim) {
     case "c2": return `条件2（${cfg.ma.mid}日線割れ）`;
     case "c3": return `条件3（ボリンジャーバンド${aim ? ` −${aim}σ狙い` : ""}）`;
     case "theme": return "テーマ・業績";
+    case "mo": return "順張り（ブレイクアウト）";
     default: return key;
   }
 }
@@ -65,6 +69,25 @@ export function exitPlan(pos, stock, cfg, today) {
         take: { text: `自分で決めた期限（${pos.deadline}）が来たら手仕舞い`, level: null, hit: today >= pos.deadline },
         stop: { text: "買った根拠が崩れたら損切り", level: null, hit: null, manual: true },
       };
+    case "mo": {
+      // 順張り: 買値から一定の%下げたら損切り。その手前で警告を出す
+      const rule = cfg.momentum.exit;
+      // 小数の計算誤差で「ちょうど −8%」が外れないように丸める
+      const at = (pct) => Math.round(pos.buyPrice * (100 + pct) * 1e4) / 1e6;
+      const level = at(rule.stop_loss_pct);
+      const warnLevel = at(rule.stop_warn_pct);
+      return {
+        take: { text: "利確の条件は決めていません（自分で判断）", level: null, hit: null, manual: true },
+        stop: {
+          text: `買値から ${rule.stop_loss_pct}% で損切り`,
+          level,
+          warnLevel,
+          hit: close == null ? null : close <= level,
+          warn: close == null ? null : close <= warnLevel,
+          manual: false,
+        },
+      };
+    }
     default:
       throw new Error(`買った理由が不明です: ${pos.reason}`);
   }

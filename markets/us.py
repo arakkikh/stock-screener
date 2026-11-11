@@ -13,4 +13,6 @@ MARKET = Market(
     vol_name="VIX",
     vol_url="https://www.cboe.com/tradable_products/vix/",
     fear_greed_url="https://edition.cnn.com/markets/fear-and-greed",
+    universe_name="S&P 100",
+    momentum_universe_name="S&P 500",
 )

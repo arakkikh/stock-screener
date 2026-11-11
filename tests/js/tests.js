@@ -1,6 +1,6 @@
 // 画面側の計算（出口ルール・損益集計・決算警告）のテスト。
 // 実行: python -m pytest tests/test_js.py （ブラウザで tests/js/index.html を開いても結果が見られる）
-import { exitPlan, findDropReference, validatePosition, reasonLabel } from "../../docs/js/exits.js";
+import { exitPlan, findDropReference, validatePosition, reasonLabel, REASONS_BY_KIND } from "../../docs/js/exits.js";
 import { pnl, ytd } from "../../docs/js/ledger.js";
 import { earningsStatus } from "../../docs/js/earnings.js";
 import { store, exportAll, importAll } from "../../docs/js/store.js";
@@ -18,6 +18,7 @@ const cfg = {
   buy: { drop_pct: -2.5, bb_period: 20 },
   ma: { short: 5, mid: 25, long: 100 },
   exit: { drop_lookback_days: 10 },
+  momentum: { exit: { stop_warn_pct: -7, stop_loss_pct: -8, ma_break_volume_ratio: 1.5 } },
 };
 const stock = (close, levels = {}) => ({ close, levels: { ma_mid: 110, bb_mid: 108, bb_l2: 96, bb_l3: 92, ...levels } });
 
@@ -89,11 +90,40 @@ test("買った理由の表示名", () => {
   eq(reasonLabel("c3", cfg, "2"), "条件3（ボリンジャーバンド −2σ狙い）");
 });
 
-// ---- 入力チェック ----
 const valid = {
   buyDate: "2026-11-05", buyPrice: 950, qty: 100, reason: "c2",
   memo: { why: "大型で流動性がある", basis: "25日線から−6%", lose: "悪材料が出たら" },
 };
+
+// ---- 順張りの出口 ----
+test("順張り: 買値から−8%で損切り、−7%で警告", () => {
+  const pos = { reason: "mo", buyPrice: 1000 };
+  const at = (close) => exitPlan(pos, { close }, cfg, "2026-11-10").stop;
+  eq([at(940).warn, at(940).hit], [false, false]);
+  eq([at(930).warn, at(930).hit], [true, false]);   // ちょうど −7%
+  eq([at(925).warn, at(925).hit], [true, false]);
+  eq([at(920).warn, at(920).hit], [true, true]);    // ちょうど −8%
+  eq([at(900).warn, at(900).hit], [true, true]);
+  eq([at(920).level, at(920).warnLevel, at(920).manual], [920, 930, false]);
+});
+test("順張り: 損切りの%は設定から読む", () => {
+  const other = { ...cfg, momentum: { exit: { stop_warn_pct: -4, stop_loss_pct: -5 } } };
+  const stop = exitPlan({ reason: "mo", buyPrice: 200 }, { close: 191 }, other, "2026-11-10").stop;
+  eq([stop.level, stop.warn, stop.hit], [190, true, false]);
+});
+test("順張り: 利確は自分で判断。銘柄データがなくても落ちない", () => {
+  eq(exitPlan({ reason: "mo", buyPrice: 100 }, { close: 150 }, cfg, "2026-11-10").take.manual, true);
+  eq(exitPlan({ reason: "mo", buyPrice: 100 }, undefined, cfg, "2026-11-10").stop.hit, null);
+});
+test("逆張りと順張りで、選べる買った理由を分ける", () => {
+  eq(REASONS_BY_KIND.contrarian.includes("mo"), false);
+  eq(REASONS_BY_KIND.momentum.includes("mo"), true);
+  eq(REASONS_BY_KIND.momentum.some((k) => ["c1", "c2", "c3"].includes(k)), false);
+  eq(reasonLabel("mo", cfg), "順張り（ブレイクアウト）");
+  eq(validatePosition({ ...valid, reason: "mo" }), []);
+});
+
+// ---- 入力チェック ----
 test("正しい入力はエラーなし", () => eq(validatePosition(valid), []));
 test("理由メモは3つとも必須", () => {
   eq(validatePosition({ ...valid, memo: { why: "a", basis: " ", lose: "" } }).length, 2);
