@@ -140,13 +140,32 @@ def fetch_facts(symbol: str, retries: int = 1) -> Optional[dict]:
     return None
 
 
-def fetch_many(symbols: List[str], workers: int = 4, progress_every: int = 50) -> Dict[str, Optional[dict]]:
-    """複数銘柄をまとめて取得する。進み具合を表示する。"""
+def fetch_many(
+    symbols: List[str],
+    workers: int = 2,
+    chunk_size: int = 40,
+    cooldown_seconds: int = 300,
+    max_cooldowns: int = 6,
+) -> Dict[str, Optional[dict]]:
+    """複数銘柄をまとめて取得する。進み具合を表示する。
+
+    取得元は短時間に問い合わせすぎると一時的に拒否してくる。
+    ひとかたまり（chunk_size 銘柄）の半分以上が失敗したら拒否されたとみなし、
+    cooldown_seconds だけ待ってから、失敗した銘柄を取り直す。
+    """
     result: Dict[str, Optional[dict]] = {}
+    cooldowns = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for i, (symbol, facts) in enumerate(zip(symbols, pool.map(fetch_facts, symbols)), 1):
-            result[symbol] = facts
-            if i % progress_every == 0 or i == len(symbols):
-                ok = sum(1 for v in result.values() if v)
-                print(f"  {i}/{len(symbols)} 銘柄（取得できた {ok}）", flush=True)
+        for start in range(0, len(symbols), chunk_size):
+            chunk = symbols[start : start + chunk_size]
+            result.update(zip(chunk, pool.map(fetch_facts, chunk)))
+            failed = [s for s in chunk if not result[s]]
+            if len(failed) > len(chunk) / 2 and cooldowns < max_cooldowns:
+                cooldowns += 1
+                print(f"  取得を拒否されたようです。{cooldown_seconds}秒待って続けます（{cooldowns}回目）", flush=True)
+                time.sleep(cooldown_seconds)
+                result.update(zip(failed, pool.map(fetch_facts, failed)))
+            done = min(start + chunk_size, len(symbols))
+            ok = sum(1 for v in result.values() if v)
+            print(f"  {done}/{len(symbols)} 銘柄（取得できた {ok}）", flush=True)
     return result
