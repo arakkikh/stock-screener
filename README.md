@@ -29,6 +29,7 @@
 | `markets/` | 市場ごとの違いとデータ取得 |
 | `scripts/update.py` | データ更新（毎日） |
 | `scripts/update_fundamentals.py` | 財務データの取得（週1回） |
+| `scripts/run_backtest.py` | バックテスト（手動で実行） |
 | `data/` | 取得した財務データ（採点のもと。画面には直接出ない） |
 | `scripts/build_universe.py` | 銘柄リストを公式の構成銘柄から作り直す |
 | `docs/` | 公開される画面とデータ |
@@ -76,8 +77,20 @@ python3 -m http.server 8000 --directory docs
 - 点数は参考情報で、逆張り・順張りの候補判定には使っていません。
 - 財務データを手元で取り直すには: `.venv/bin/python scripts/update_fundamentals.py --market jp` のあと `.venv/bin/python scripts/update.py --market jp --mode fundamentals`
 
+## バックテストについて
+
+- 過去10年の日足で、各サインが出たあとの成績を集計します。結果は画面の「検証結果」で見られます。
+- 自動では実行しません。しきい値を見直したいときに手元で実行します（1市場あたり3〜4分）。
+  ```
+  .venv/bin/python scripts/run_backtest.py --market jp
+  .venv/bin/python scripts/run_backtest.py --market us
+  ```
+- 古い8年でしきい値を選び、直近2年で通用するかを確かめる、という見方をします。しきい値は自動では書き換えません。
+- 限界: 今の構成銘柄だけで検証しているため、成績は実際より良く出ます。手数料・税金・売買時の価格のずれも含みません。
+
 ## データについて
 
 - 株価・指数・VIX・為替・決算予定日・財務データ・アナリスト予想は Yahoo Finance（yfinance 経由、非公式）。遅れや誤りを含むことがあります。
+- 取得元のデータには、株式分割が過去の株価に反映されていない・値が壊れている、といった異常がまれにあります。そうした「断絶」より前の履歴は使いません（`markets/fetch.py` の `drop_before_break`）。
 - 日経VI と Fear & Greed は自動取得していません。画面で手入力します。
 - チャートは TradingView Lightweight Charts（Apache License 2.0）を同梱しています。

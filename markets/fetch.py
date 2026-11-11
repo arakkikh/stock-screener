@@ -39,6 +39,38 @@ def previous_session(market: Market, day: dt.date) -> dt.date:
     return cal.sessions_in_range(end - pd.Timedelta(days=14), end)[-1].date()
 
 
+# 株価の「断絶」（値動きではなくデータの異常）の見分け方
+BREAK_UP_RATIO = 1.8        # 前日比がこの倍率を超えて上がる（大型株では実際には起きない）
+BREAK_DOWN_RATIO = 0.1      # 前日比がこの倍率を下回る（10分の1未満）
+SPLIT_RATIOS = (1 / 2, 1 / 3, 1 / 4, 1 / 5)   # 株式分割が反映されていないときに現れる倍率
+SPLIT_TOLERANCE = 0.03      # 上の倍率からのずれがこの割合以内なら、分割の未反映とみなす
+
+
+def drop_before_break(frame: pd.DataFrame) -> pd.DataFrame:
+    """株価の「断絶」より前の履歴を捨てる。
+
+    取得元のデータには、株式分割が過去の株価に反映されていない・値が壊れている、
+    といった異常がまれにある（1日でちょうど3分の1になる、数億倍になる、など）。
+    そのまま使うと移動平均線や騰落率が狂うので、最後の断絶より後だけを使う。
+    断絶の日そのものは、新しい水準の最初の日として残す。
+
+    実際の暴落（1日で −50% など）は捨てない。捨てると、いちばん損をする場面が
+    検証から消えてしまうため。分割の未反映は、始値が前日終値のちょうど
+    2分の1・3分の1…になることで見分ける。
+    """
+    prev_close = frame["close"].shift(1)
+    open_ratio = frame["open"] / prev_close
+    close_ratio = frame["close"] / prev_close
+    jump = (frame[["open", "high", "low", "close"]] <= 0).any(axis=1)
+    for ratio in (open_ratio, close_ratio):
+        jump |= (ratio > BREAK_UP_RATIO) | (ratio < BREAK_DOWN_RATIO)
+    for split in SPLIT_RATIOS:
+        jump |= ((open_ratio / split - 1).abs() <= SPLIT_TOLERANCE) & ((close_ratio / split - 1).abs() <= 0.15)
+    if not jump.any():
+        return frame
+    return frame.loc[jump[jump].index[-1] :]
+
+
 def _clean(frame: pd.DataFrame, last_day: dt.date) -> Optional[pd.DataFrame]:
     frame = frame.rename(columns=str.lower)
     if "close" not in frame:
@@ -46,6 +78,7 @@ def _clean(frame: pd.DataFrame, last_day: dt.date) -> Optional[pd.DataFrame]:
     frame = frame.dropna(subset=["open", "high", "low", "close"])[COLUMNS]
     frame.index = pd.DatetimeIndex(frame.index).tz_localize(None).normalize()
     frame = frame[frame.index.date <= last_day]
+    frame = drop_before_break(frame)
     return frame if len(frame) else None
 
 

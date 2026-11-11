@@ -216,3 +216,49 @@ def test_momentum_reports_recent_ma_break():
     summary, _ = report.analyze_momentum(volume_df(close, [1000.0] * 299 + [3000.0]), 90, cfg(), 1)
     assert summary["ma_break"] == summary["date"]
     assert summary["volume_ratio"] == 3.0
+
+
+# ---- 株価データの断絶（分割の未反映・壊れた値）----
+
+def ohlc(close):
+    close = pd.Series(close, dtype=float, index=pd.bdate_range("2026-01-05", periods=len(close)))
+    return pd.DataFrame({"open": close, "high": close * 1.01, "low": close * 0.99, "close": close, "volume": 1000.0})
+
+
+def test_normal_prices_are_kept_as_they_are():
+    df = ohlc([100, 97, 103, 80, 120])   # 1日で −22% や +50% は、値動きとしてありうる
+    assert len(fetch.drop_before_break(df)) == 5
+
+
+def test_history_before_an_unadjusted_split_is_dropped():
+    df = ohlc([11000, 11050, 11040, 3713, 3628, 3700])   # 1:3 の分割が過去に反映されていない
+    kept = fetch.drop_before_break(df)
+    assert list(kept["close"]) == [3713, 3628, 3700]
+
+
+def test_history_before_garbage_values_is_dropped():
+    df = ohlc([2796, 2798, 5.59e10, 5.53e10, 2800, 2810])   # 壊れた値が2日続き、元に戻る
+    assert list(fetch.drop_before_break(df)["close"]) == [2800, 2810]
+
+
+def test_unadjusted_two_for_one_split_is_also_detected():
+    df = ohlc([2000, 2010, 1004, 1010])
+    assert list(fetch.drop_before_break(df)["close"]) == [1004, 1010]
+
+
+def test_real_crash_is_not_treated_as_a_break():
+    # 1日で −45% の暴落（倍率 0.55。2分の1・3分の1のどれにも当たらない）は実際の値動きとして残す
+    df = ohlc([100, 101, 55.5, 57, 60])
+    assert len(fetch.drop_before_break(df)) == 5
+    # −60%（倍率 0.4）も同じ
+    assert len(fetch.drop_before_break(ohlc([100, 101, 40.4, 42]))) == 4
+
+
+def test_only_history_after_the_last_break_is_used():
+    df = ohlc([100, 500, 510, 30, 31, 32])   # 5倍になり、のちに 0.06倍になる（どちらも異常）
+    assert list(fetch.drop_before_break(df)["close"]) == [30, 31, 32]
+
+
+def test_non_positive_price_counts_as_a_break():
+    df = ohlc([100, 101, 0, 102, 103])
+    assert list(fetch.drop_before_break(df)["close"]) == [102, 103]

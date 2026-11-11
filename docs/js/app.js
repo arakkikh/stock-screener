@@ -7,6 +7,7 @@ import { earningsInfo as earningsOf, overrideKey } from "./earnings.js";
 import { renderPortfolio, renderNewPosition, initPortfolio, loadPositions } from "./portfolio.js";
 import { renderMomentumList, renderMomentumDetail, initMomentum } from "./momentum.js";
 import { renderFundList, renderFundDetail, mountFundCard, initFund } from "./fund.js";
+import { renderBacktest, initBacktest } from "./backtest.js";
 
 const MARKETS = ["jp", "us"];
 const app = document.getElementById("app");
@@ -216,6 +217,7 @@ function rulesHTML(d) {
       <li>決算はまたがない。</li>
       <li>迷ったら入らない。入るなら小ロット。</li>
     </ul>
+    <p><a href="#${d.market}/bt">過去10年の検証結果（バックテスト）を見る</a></p>
     <p class="muted">1〜4の丸は買い条件の点灯（1: 急落、2: ${d.config.ma.mid}日線からの乖離、3: ボリンジャーバンド、4: RCI）。赤い3は −3σ 到達。</p>
   </section>`;
 }
@@ -429,6 +431,14 @@ async function route() {
       else renderMomentumList(app, data);
       return;
     }
+    if (second === "bt") {
+      const data = await getJSON(`data/${market}_backtest.json`);
+      if (stale()) return;
+      document.getElementById("as-of").textContent = "";
+      renderBacktest(app, data);
+      window.scrollTo(0, 0);
+      return;
+    }
     if (mode === "fund") {
       const data = await getJSON(`data/${market}_fund.json`);
       const base = await getJSON(`data/${market}.json`);
@@ -519,5 +529,6 @@ app.addEventListener("change", (event) => {
 initPortfolio(app, route);
 initMomentum(app, getJSON);
 initFund(app, getJSON);
+initBacktest(app);
 window.addEventListener("hashchange", route);
 route();
