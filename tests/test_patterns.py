@@ -328,11 +328,13 @@ def test_two_black_is_reported_as_warning():
 
 # ---- エントリー候補への昇格 ----
 
-def entry(counts, reversal_days):
+def entry(counts, reversal_days, lookback_days=10, min_conditions=1):
     index = range(len(counts))
     buy = pd.DataFrame({"count": counts}, index=index)
     rev = pd.DataFrame({"engulfing": [d in reversal_days for d in index], "doji": False}, index=index)
-    return list(entry_candidates(buy, rev, cfg())[lambda s: s].index)
+    c = cfg()
+    c["entry"] = {"lookback_days": lookback_days, "min_conditions": min_conditions}
+    return list(entry_candidates(buy, rev, c)[lambda s: s].index)
 
 
 def test_entry_needs_both_condition_and_reversal():
@@ -351,3 +353,15 @@ def test_entry_expires_after_lookback():
     counts = [1] + [0] * 14
     assert entry(counts, reversal_days=[9]) == [9]    # 点灯した日を含めて10日目
     assert entry(counts, reversal_days=[10]) == []
+    assert entry(counts, reversal_days=[4], lookback_days=5) == [4]
+    assert entry(counts, reversal_days=[5], lookback_days=5) == []
+
+
+def test_entry_needs_enough_conditions():
+    assert entry([0, 1, 0, 0], reversal_days=[2], min_conditions=2) == []
+    assert entry([0, 2, 0, 0], reversal_days=[2], min_conditions=2) == [2]
+
+
+def test_entry_settings_in_config_are_the_backtested_values():
+    assert cfg("jp")["entry"] == {"lookback_days": 5, "min_conditions": 2}
+    assert cfg("us")["entry"] == {"lookback_days": 5, "min_conditions": 2}
