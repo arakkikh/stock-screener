@@ -36,13 +36,22 @@ from screener.config import load_thresholds  # noqa: E402
 
 DATA = ROOT / "docs" / "data"
 
-VARIANTS = [
-    ("current", "今の基準", {}),
-    ("A", "順張り向き: 200日線より上が50%以上", {"uptrend_pct": 50}),
-    ("A", "順張り向き: 200日線より上の条件なし（指数の位置と向きだけ）", {"uptrend_pct": 0}),
-    ("B", "逆張り向き: 25日線より上が25%以下", {"oversold_pct": 25}),
-    ("B", "逆張り向き: 25日線より上が30%以下", {"oversold_pct": 30}),
-]
+UPTREND_VALUES = [60, 50, 0]    # 案A: 順張り向きの「200日線より上の銘柄 %以上」（0 = 条件なし）
+OVERSOLD_VALUES = [20, 25, 30]  # 案B: 逆張り向きの「25日線より上の銘柄 %以下」
+
+
+def variants(cfg: dict):
+    """比べる基準の一覧。今の基準を先頭に、案A・案B は今と違う値だけを並べる。"""
+    r = cfg["regime"]
+    out = [("current", f"今の基準（順張り向き {r['uptrend_pct']}%以上・逆張り向き {r['oversold_pct']}%以下）", {})]
+    for v in UPTREND_VALUES:
+        if v != r["uptrend_pct"]:
+            label = "順張り向き: 200日線より上の条件なし（指数の位置と向きだけ）" if v == 0 else f"順張り向き: 200日線より上が{v}%以上"
+            out.append(("A", label, {"uptrend_pct": v}))
+    for v in OVERSOLD_VALUES:
+        if v != r["oversold_pct"]:
+            out.append(("B", f"逆張り向き: 25日線より上が{v}%以下", {"oversold_pct": v}))
+    return out
 
 
 def prepare(market, cfg, as_of, split):
@@ -109,7 +118,7 @@ def main() -> int:
     breadth, index_close, vix, contrarian, momentum = prepare(market, cfg, as_of, split)
 
     rows = []
-    for group, label, change in VARIANTS:
+    for group, label, change in variants(cfg):
         changed = copy.deepcopy(cfg)
         changed["regime"].update(change)
         regime = rg.classify(breadth, index_close, vix, changed)["regime"]

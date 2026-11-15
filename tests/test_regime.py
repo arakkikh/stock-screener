@@ -82,9 +82,11 @@ def test_uptrend_needs_enough_stocks_above_200_day_line():
 
 
 def test_oversold_is_contrarian_even_in_downtrend():
-    last = classify_last(DOWN, 20, 30)
+    limit = cfg()["regime"]["oversold_pct"]
+    last = classify_last(DOWN, limit, 30)
     assert (last["regime"], last["reason"]) == ("contrarian", "oversold")
-    assert classify_last(DOWN, 20.1, 30)["regime"] == "wait"
+    assert classify_last(DOWN, limit + 0.1, 30)["regime"] == "wait"
+    assert classify_last(DOWN, 20.1, 30, oversold_pct=20)["regime"] == "wait"
 
 
 def test_high_vix_is_contrarian():
