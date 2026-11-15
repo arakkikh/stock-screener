@@ -33,7 +33,9 @@ FIELDS = (
     + [f"r{h}" for h in HORIZONS]     # 騰落率(%)
     + [f"i{h}" for h in HORIZONS]     # 同じ期間の指数の騰落率(%)
     + ["xr", "xd", "xe", "s"]         # 出口ルールどおりの売買: 騰落率・保有日数・決済理由 / 状態
+    + ["e"]                           # その日の相場環境（フェーズ6Aで追加。contrarian / momentum / wait）
 )
+OLD_FIELDS = FIELDS[:-1]  # フェーズ6Aより前のファイルの項目（読むときに「e」を空で補う）
 COL = {name: i for i, name in enumerate(FIELDS)}
 PENDING, DONE, LOST = 0, 1, 2  # 状態: 追跡中 / 完了 / 追跡できなくなった
 
@@ -238,6 +240,14 @@ def summarize_rows(rows: List[list]) -> dict:
                 stats["excess"] = round(float(np.mean([a - b for a, b in both])), 2) if both else None
                 stats["hit"] = round(float(np.mean([v < 0 for v in ret]) * 100), 1)
             entry["h"][str(h)] = stats
+        # 相場環境別（10営業日後）
+        entry["by_regime"] = {}
+        for reg in ("contrarian", "momentum", "wait"):
+            ret = [r[COL["r10"]] for r in live if r[COL["e"]] == reg and r[COL["r10"]] is not None]
+            stats = _stats(ret)
+            if stats is not None:
+                stats["hit"] = round(float(np.mean([v < 0 for v in ret]) * 100), 1)
+            entry["by_regime"][reg] = stats
         trades = [r for r in live if r[COL["xr"]] is not None]
         if trades:
             stats = _stats([r[COL["xr"]] for r in trades])
@@ -271,6 +281,9 @@ def load_rows(folder: Path, market: str, years: Iterable[int]) -> Dict[int, List
         path = _year_path(folder, market, year)
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("fields") == OLD_FIELDS:
+                result[year] = [row + [None] for row in data["rows"]]
+                continue
             if data.get("fields") != FIELDS:
                 raise ValueError(f"{path.name} の項目が想定と違います: {data.get('fields')}")
             result[year] = data["rows"]
@@ -293,8 +306,19 @@ def save_rows(folder: Path, market: str, year: int, rows: List[list]) -> None:
     _year_path(folder, market, year).write_text(f'{head},"rows":[\n{body}\n]}}\n', encoding="utf-8")
 
 
+def fill_regime(rows: List[list], regime_by_date: Dict[str, str]) -> int:
+    """相場環境がまだ空のシグナルに、その日の判定を書き込む。戻り値は書き込んだ件数。"""
+    filled = 0
+    for row in rows:
+        if row[COL["e"]] is None and row[COL["d"]] in regime_by_date:
+            row[COL["e"]] = regime_by_date[row[COL["d"]]]
+            filled += 1
+    return filled
+
+
 def update(folder: Path, market: str, cfg: dict, as_of: dt.date, mode: str, signals,
-           frames: Dict[str, pd.DataFrame], index_df: Optional[pd.DataFrame], now: dt.datetime) -> dict:
+           frames: Dict[str, pd.DataFrame], index_df: Optional[pd.DataFrame], now: dt.datetime,
+           regime_by_date: Optional[Dict[str, str]] = None) -> dict:
     """1回分の更新: その日のシグナルを追記し、追跡中のものの成績を埋め、画面用の集計を作り直す。
 
     mode = "contrarian"（逆張りの更新から呼ぶ）/ "momentum"（順張りの更新から呼ぶ）。
@@ -314,6 +338,8 @@ def update(folder: Path, market: str, cfg: dict, as_of: dt.date, mode: str, sign
     finished = 0
     for year in years:
         finished += fill_outcomes(loaded[year], frames, index_df, cfg, mode, as_of)
+        if regime_by_date:
+            fill_regime(loaded[year], regime_by_date)
     for year in years:
         if loaded[year] or _year_path(folder, market, year).exists():
             save_rows(folder, market, year, loaded[year])

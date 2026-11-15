@@ -47,3 +47,25 @@ def test_python_never_touches_browser_storage_keys():
     for path in list((ROOT / "scripts").glob("*.py")) + list((ROOT / "screener").glob("*.py")):
         text = path.read_text(encoding="utf-8")
         assert "settings:money" not in text and "screener:positions" not in text, path
+
+
+def test_notification_log_hides_message_url_and_watchlist(monkeypatch, capsys):
+    # 公開リポジトリの Actions のログは誰でも見られる。文面・送り先・ウォッチリストを出さないこと
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import notify as script
+
+    sent = {}
+    monkeypatch.setattr(script, "send", lambda url, text: sent.update(url=url, text=text))
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/api/webhooks/SECRET-TOKEN")
+    data = json.loads((ROOT / "docs" / "data" / "jp.json").read_text(encoding="utf-8"))
+    watched = data["stocks"][0]
+    monkeypatch.setenv("WATCHLIST", f"jp:{watched['code']}")
+    monkeypatch.setattr(sys, "argv", ["notify.py", "--market", "jp"])
+    script.main()
+    out = capsys.readouterr()
+    log = out.out + out.err
+    assert "SECRET-TOKEN" not in log and "discord.example" not in log
+    assert watched["code"] not in log and watched["name"] not in log
+    if sent:
+        assert sent["url"].endswith("SECRET-TOKEN")

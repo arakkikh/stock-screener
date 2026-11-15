@@ -200,3 +200,43 @@ table.bt select, p select { width: auto; display: inline-block; font-size: 14px;
 .sizer-box { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 10px; }
 .sizer-box h2 { font-size: 14px; }
 table.bt td.num { white-space: nowrap; }
+
+/* 相場環境（フェーズ6A） */
+.regime-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.regime-badge { font-weight: 700; font-size: 17px; padding: 4px 12px; border-radius: 8px; color: #fff; }
+.rg-contrarian { background: var(--warn); fill: var(--warn); }
+.rg-momentum { background: var(--accent); fill: var(--accent); }
+.rg-wait { background: var(--muted); fill: var(--muted); }
+@media (prefers-color-scheme: dark) { .regime-badge { color: #111315; } }
+.rg-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px 0 6px; vertical-align: middle; }
+.mini-chart { margin: 10px 0; }
+.mini-chart svg { width: 100%; height: auto; display: block; background: var(--bg); border-radius: 6px; }
+.mini-chart .line { fill: none; stroke-width: 1.5; }
+.mini-chart .line.s1 { stroke: var(--accent); }
+.mini-chart .line.s2 { stroke: var(--lit); }
+.mini-chart .line.s3 { stroke: var(--down); }
+.mini-chart .guide { stroke: var(--muted); stroke-dasharray: 3 3; stroke-width: 0.8; }
+.mini-chart .guide-text { fill: var(--muted); font-size: 9px; }
+.mini-legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; }
+.mini-legend i { display: inline-block; width: 12px; height: 3px; vertical-align: middle; margin-right: 3px; }
+.mini-legend i.s1 { background: var(--accent); } .mini-legend i.s2 { background: var(--lit); } .mini-legend i.s3 { background: var(--down); }
+.badge.caution { background: transparent; border: 1px solid var(--warn); color: var(--warn); }
+/* セクター強弱（フェーズ6B） */
+table.sector-table td, table.sector-table th { padding-right: 8px; }
+table.sector-table tr.strong-row td:first-child { box-shadow: inset 3px 0 0 var(--good); padding-left: 6px; }
+table.sector-table { font-size: 12px; }
+table.sector-table td:nth-child(2) { min-width: 6.5em; max-width: 8.5em; overflow-wrap: anywhere; }
+table.sector-table .badge { font-size: 10px; padding: 0 5px; }
+/* イベントカレンダー（フェーズ6C） */
+.banner-wrap { max-width: 720px; margin: 0 auto; padding: 0 10px; }
+.banner-wrap .alert.banner { margin: 10px 0 0; }
+.banner-wrap .alert.banner a { color: inherit; }
+.cal-day { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.cal-day:last-child { border-bottom: 0; }
+.cal-day.today .cal-date { color: var(--accent); }
+.cal-date { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.cal-items { padding-left: 0; list-style: none; }
+.cal-items li { margin: 3px 0; font-size: 13px; }
+.cal-items li.important b { color: var(--danger); }
+.warn-text { color: var(--warn); }
+#market-tabs a { font-size: 14px; }

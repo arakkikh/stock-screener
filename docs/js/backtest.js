@@ -1,10 +1,11 @@
 // 検証結果（バックテスト）のページ。過去10年のデータで、各サインのその後の成績を見る。
 import { esc, number, shortDate } from "./format.js";
 import { LABEL, REVERSAL, WARNING } from "./labels.js";
+import { REGIME_LABEL } from "./regime.js";
 
-const ui = { horizon: null, hold: null, mohold: null, query: "" };
+const ui = { horizon: null, hold: null, mohold: null, query: "", rgperiod: "all" };
 let current = null;
-let currentForward = null, currentCfg = null;
+let currentForward = null, currentCfg = null, currentStudy = null;
 
 const BUY = {
   cond1: "条件1（急落）", cond2: "条件2（25日線乖離）", cond3: "条件3（−2σ以下）", bb3: "条件3（−3σ到達）", cond4: "条件4（RCI）",
@@ -224,6 +225,12 @@ function forwardGroupHTML(d, f, cfg, [group, label, mode]) {
       <div class="scroll"><table class="bt"><tr><th></th><th>実運用</th>${warn ? "" : "<th>バックテスト<br><span class='small'>直近2年</span></th>"}<th>指数との差<br><span class="small">実運用</span></th></tr>${rows}${exitRow}</table></div>`;
   };
   let body = current ? table(current) : `<p class="small muted">今の設定になってから、まだこのシグナルは出ていません。</p>`;
+  if (current?.by_regime && Object.values(current.by_regime).some(Boolean)) {
+    const parts = Object.entries(current.by_regime)
+      .map(([reg, st]) => `${REGIME_LABEL[reg]} ${st ? `${pct(st.mean)}（${warn ? "的中" : "勝率"}${number(warn ? st.hit : st.win, 0)}%・${count(st.n)}件）` : "—"}`)
+      .join("　");
+    body += `<p class="small">シグナルの日の相場環境別（10営業日後）: ${parts}</p>`;
+  }
   if (warn && current && Object.keys(f.warn_types).length) {
     const typeRows = Object.entries(f.warn_types)
       .map(([key, t]) => `<tr><td>${esc(LABEL[key] ?? key)}</td>${liveCell(t.h10, true)}${backtestCell(d.contrarian.signals[key]?.test.h["10"], true)}</tr>`)
@@ -255,13 +262,72 @@ function forwardHTML(d, f, cfg) {
   </section>`;
 }
 
+// ------------------------------------------------------------ 相場環境別の成績（フェーズ6A）
+
+const RG_ORDER = ["contrarian", "momentum", "wait"];
+
+function rgCell(stats, base, warn) {
+  if (!stats) return `<td class="muted">—</td>`;
+  const good = base == null ? null : warn ? stats.mean < base : stats.mean > base;
+  return `<td><b class="num ${good == null ? "" : good ? "better" : "worse"}">${pct(stats.mean)}</b><br><span class="small muted num">勝率${number(stats.win, 0)}%<br>${count(stats.n)}回</span></td>`;
+}
+
+function rgTable(rows, period, h, first = "サイン") {
+  const body = rows
+    .map(({ label, data, base, warn }) => `<tr><td>${esc(label)}</td>${RG_ORDER.map((reg) => rgCell(data?.[reg]?.[period]?.[h], base?.[reg]?.[period]?.[h]?.mean, warn)).join("")}</tr>`)
+    .join("");
+  return `<div class="scroll"><table class="bt"><tr><th>${first}</th>${RG_ORDER.map((r) => `<th>${REGIME_LABEL[r]}</th>`).join("")}</tr>${body}</table></div>`;
+}
+
+function tradeRow(label, data, period) {
+  return `<tr class="base"><td>${esc(label)}</td>${RG_ORDER.map((reg) => {
+    const t = data?.[reg]?.[period];
+    return t ? `<td><b class="num">${pct(t.mean)}</b><br><span class="small muted num">勝率${number(t.win, 0)}%<br>${count(t.n)}回</span></td>` : `<td class="muted">—</td>`;
+  }).join("")}</tr>`;
+}
+
+function regimeStudyHTML(st) {
+  if (!st) return "";
+  const period = ui.rgperiod === "test" ? "test" : "all";
+  const c = st.contrarian, m = st.momentum, b = st.config.backtest;
+  const h = String(b.main_horizon), mh = String(b.momentum_horizons[1]);
+  const days = RG_ORDER.map((reg) => `${REGIME_LABEL[reg]} ${count(st.days[reg][period])}日`).join("・");
+  const sig = (key, label, warn = false) => ({ label, data: c.signals[key], base: c.signals.baseline, warn });
+  const contrarianRows = [
+    { label: "いつ買っても（比較の基準）", data: c.signals.baseline },
+    sig("entry", LABEL.entry), sig("count2", "点灯2個以上"), sig("count3", "点灯3個以上"),
+    sig("cond1", "条件1（急落）"), sig("cond3", "条件3（−2σ以下）"), sig("bb3", "条件3（−3σ到達）"),
+  ];
+  const warnRows = ["hanging_man", "harami_top", "double_top", "island_top", "two_black"].map((k) => sig(k, LABEL[k], true));
+  const select = `<label class="small muted">期間 <select data-bt="rgperiod">
+    <option value="all" ${period === "all" ? "selected" : ""}>全期間</option><option value="test" ${period === "test" ? "selected" : ""}>直近2年</option></select></label>`;
+  return `<section class="card">
+    <h2>相場環境別の成績</h2>
+    <p class="small muted">サインが出た日の相場環境（逆張り向き／順張り向き／様子見）ごとに、その後の成績を分けました。${select}
+      環境の日数: ${days}（${st.period.start.slice(0, 7)}〜）。<b class="better">色つき</b>は、同じ環境で「いつ買っても」の平均を上回ったもの。</p>
+    <div class="alert info">相場環境の計算も今の構成銘柄で行っているため、昔ほど対象が少なく、上昇してきた銘柄に偏ります<small>環境の日数が少ない欄は、回数が多く見えても同じ時期に集中しているので、偶然の影響が大きくなります。</small></div>
+    <h3>逆張り（${b.main_horizon}営業日後）</h3>
+    ${rgTable(contrarianRows, period, h)}
+    <div class="scroll"><table class="bt"><tr><th>出口ルールつき</th>${RG_ORDER.map((r) => `<th>${REGIME_LABEL[r]}</th>`).join("")}</tr>
+      ${tradeRow(`エントリー候補 → 25日線で利確（最大${st.config.forward.entry_max_hold}日）`, c.entry_trades, period)}</table></div>
+    <h3>警戒サイン（${b.main_horizon}営業日後。基準より低いほど当たり）</h3>
+    ${rgTable(warnRows, period, h)}
+    ${m ? `<h3>順張り（${mh}営業日後）</h3>
+      ${rgTable([{ label: "いつ買っても（比較の基準）", data: m.signals.baseline }, { label: "ブレイクアウト（出来高を伴う上抜け）", data: m.signals.breakout, base: m.signals.baseline }], period, mh)}
+      <div class="scroll"><table class="bt"><tr><th>出口ルールつき</th>${RG_ORDER.map((r) => `<th>${REGIME_LABEL[r]}</th>`).join("")}</tr>
+        ${tradeRow(`ブレイクアウト → 損切り・50日線割れ（最大${st.config.forward.breakout_max_hold}日）`, m.breakout_trades, period)}</table></div>` : ""}
+    <p class="small muted">${shortDate(st.as_of)} 時点。手数料・税金は含みません。過去の成績は将来を保証しません。</p>
+  </section>`;
+}
+
 // ------------------------------------------------------------ 画面
 
 // forward = 実運用での成績（なければ null）、cfg = 今のしきい値（市場のデータに入っているもの）
-export function renderBacktest(app, d, forward = null, cfg = null) {
+export function renderBacktest(app, d, forward = null, cfg = null, study = null) {
   current = d;
   currentForward = forward;
   currentCfg = cfg;
+  currentStudy = study;
   const p = d.period;
   app.innerHTML = `
     <a class="btn back" href="#${d.market}">← 一覧へ戻る</a>
@@ -273,6 +339,7 @@ export function renderBacktest(app, d, forward = null, cfg = null) {
         ただし、相場全体が急落した日には多くの銘柄で同時にサインが出るため、回数ほどには独立した例は多くありません。</p>
     </section>
     ${cfg?.forward ? forwardHTML(d, forward, cfg) : ""}
+    ${regimeStudyHTML(study)}
     ${contrarianHTML(d)}${rciHTML(d)}${momentumHTML(d)}`;
 }
 
@@ -282,7 +349,7 @@ export function initBacktest(app) {
     if (!key || key === "query" || !current) return;
     ui[key] = event.target.value;
     const y = window.scrollY;
-    renderBacktest(app, current, currentForward, currentCfg);
+    renderBacktest(app, current, currentForward, currentCfg, currentStudy);
     window.scrollTo(0, y);
   });
   app.addEventListener("input", (event) => {

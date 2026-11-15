@@ -224,3 +224,28 @@ def test_loading_a_file_with_different_fields_is_refused(tmp_path):
     (tmp_path / "jp_2026.json").write_text(json.dumps({"fields": ["d"], "rows": []}))
     with pytest.raises(ValueError):
         fw.load_rows(tmp_path, "jp", [2026])
+
+
+# ---- 相場環境（フェーズ6A） ----
+
+def test_old_files_without_regime_field_are_still_readable(tmp_path):
+    old_row = ["2026-11-13", "A", "entry", 100.0, "v"] + [None] * 9 + [fw.PENDING]
+    (tmp_path / "jp_2026.json").write_text(json.dumps({"fields": fw.OLD_FIELDS, "rows": [old_row]}))
+    rows = fw.load_rows(tmp_path, "jp", [2026])[2026]
+    assert len(rows[0]) == len(fw.FIELDS) and rows[0][COL["e"]] is None
+
+
+def test_fill_regime_writes_only_empty_rows():
+    rows = new_row("2026-11-13") + new_row("2026-11-16", code="B")
+    rows[1][COL["e"]] = "wait"
+    assert fw.fill_regime(rows, {"2026-11-13": "momentum", "2026-11-16": "contrarian"}) == 1
+    assert [r[COL["e"]] for r in rows] == ["momentum", "wait"]
+
+
+def test_summary_splits_results_by_regime():
+    a = finished("2026-11-02", "entry", "v", [1, 2, 3])
+    b = finished("2026-11-03", "entry", "v", [1, -4, 3])
+    a[COL["e"]], b[COL["e"]] = "momentum", "wait"
+    g = fw.summarize_rows([a, b])["groups"][0]
+    assert g["by_regime"]["momentum"]["mean"] == 2.0 and g["by_regime"]["wait"]["mean"] == -4.0
+    assert g["by_regime"]["contrarian"] is None

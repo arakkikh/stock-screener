@@ -1,9 +1,9 @@
-{"market":"us","year":2026,"fields":["d","c","k","p","v","r5","r10","r20","i5","i10","i20","xr","xd","xe","s"],"rows":[
-["2026-11-13","COF","entry",195.08,"217106d6",null,null,null,null,null,null,null,null,null,0],
-["2026-11-13","NOW","entry",102.25,"217106d6",null,null,null,null,null,null,null,null,null,0],
-["2026-11-13","EMR","warn:hanging_man",166.38,"217106d6",null,null,null,null,null,null,null,null,null,0],
-["2026-11-13","LIN","warn:hanging_man",526.06,"217106d6",null,null,null,null,null,null,null,null,null,0],
-["2026-11-13","TMO","warn:hanging_man",700.22,"217106d6",null,null,null,null,null,null,null,null,null,0],
-["2026-11-13","ANET","warn:harami_top",197.29,"217106d6",null,null,null,null,null,null,null,null,null,0],
-["2026-11-13","TMO","warn:two_black",700.22,"217106d6",null,null,null,null,null,null,null,null,null,0]
+{"market":"us","year":2026,"fields":["d","c","k","p","v","r5","r10","r20","i5","i10","i20","xr","xd","xe","s","e"],"rows":[
+["2026-11-13","COF","entry",195.08,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-13","NOW","entry",102.25,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-13","EMR","warn:hanging_man",166.38,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-13","LIN","warn:hanging_man",526.06,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-13","TMO","warn:hanging_man",700.22,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-13","ANET","warn:harami_top",197.29,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-13","TMO","warn:two_black",700.22,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"]
 ]}

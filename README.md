@@ -31,6 +31,8 @@
 | `scripts/update_fundamentals.py` | 財務データの取得（週1回） |
 | `scripts/run_backtest.py` | バックテスト（手動で実行） |
 | `screener/forward.py` | シグナルの自動追跡（フォワードテスト） |
+| `screener/regime.py`, `sectors.py`, `events.py`, `notify.py` | 相場環境・セクター強弱・イベント・通知の文面 |
+| `config/events.yaml` | FOMC・日銀会合・CPI・雇用統計の日程（年1回手で更新） |
 | `data/` | 取得した財務データ（採点のもと。画面には直接出ない） |
 | `scripts/build_universe.py` | 銘柄リストを公式の構成銘柄から作り直す |
 | `docs/` | 公開される画面とデータ |
@@ -109,6 +111,20 @@ python3 -m http.server 8000 --directory docs
   - `{市場}_summary.json`: 画面用の集計
 - 件数が `forward.min_samples`（仮置き30件）に届くまでは「まだ判断できない」と表示します。
 - 追跡に失敗しても、ほかのデータ更新は保存されます（Actions の画面に警告が出ます）。
+
+## 相場環境・セクター強弱・カレンダー・通知（フェーズ6）
+
+- **相場環境**: 逆張り・順張りの一覧の上に「逆張り向き／順張り向き／様子見」を、根拠の数値と推移グラフつきで表示します。順張りの対象銘柄（約500銘柄）の「25日線・200日線より上の割合」「52週高値・安値の更新数」と、指数・VIX から毎日判定します。基準は `config/thresholds.yaml` の `regime:`（仮置き）。環境と合わない候補には「今の環境とは逆」と表示します（候補は消しません）。
+- 相場環境別のバックテスト（検証結果ページ）は、基準を見直すときに手元で実行します（1市場あたり数分）:
+  ```
+  .venv/bin/python scripts/run_regime_study.py --market jp
+  .venv/bin/python scripts/run_regime_study.py --market us
+  ```
+- **セクター強弱**: 「セクター」タブ。セクター・テーマごとの1週間・1か月・3か月の指数との差、順位の変化、25日線より上の割合。米国株は公式のセクターETF（XLK など）の値も並べます。「見るだけ」ラベルと、一覧の「強いセクター・テーマ」絞り込みはこの集計を使います。基準は `sectors:`。
+- **イベントカレンダー**: 「カレンダー」タブ。SQ・米国のオプション満期日・日米の休場日は自動計算。FOMC・日銀会合・CPI・雇用統計は `config/events.yaml` に、公式サイトで確認した日程を出典・確認日つきで書きます（**年に1回、公式サイトを見て更新**。期限が近づくと画面と Actions に警告が出ます）。
+- **通知（Discord）**: 毎日のデータ更新で新しい営業日のデータができたら、市場ごとに1通送ります。内容は相場環境の切り替わり・VIX が基準を超えた日（米国株）・新しいエントリー候補とブレイクアウト・次の営業日の重要イベント・ウォッチリスト。設定は `notify:`（市場ごとのオン／オフ、内容がない日も送るか）。
+  - 送り先は GitHub Secrets の `DISCORD_WEBHOOK_URL`、ウォッチリストは Secrets の `WATCHLIST`（例: `jp:7203, us:AAPL`）。どちらもリポジトリには書きません。
+  - 手元で文面を確かめる: `.venv/bin/python scripts/notify.py --market jp --dry-run`
 
 ## データについて
 

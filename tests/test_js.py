@@ -32,4 +32,4 @@ def test_javascript_logic():
         server.shutdown()
     assert errors == []
     assert results["failed"] == []
-    assert results["passed"] >= 73
+    assert results["passed"] >= 77

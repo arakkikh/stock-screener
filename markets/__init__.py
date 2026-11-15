@@ -22,6 +22,7 @@ class Market:
     settle_minutes: int = 60  # 引けからこの分数が過ぎたら、その日のデータを確定とみなす
     universe_name: str = ""           # 逆張りの対象銘柄の呼び名
     momentum_universe_name: str = ""  # 順張りの対象銘柄の呼び名
+    sector_etfs: tuple = ()           # (セクター名, ETFのティッカー) の組。セクター強弱の参考に並べる（米国株のみ）
 
     def ticker(self, code: str) -> str:
         return code + self.ticker_suffix

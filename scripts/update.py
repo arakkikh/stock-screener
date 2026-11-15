@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 import markets  # noqa: E402
 from markets import fetch  # noqa: E402
-from screener import forward, fundamentals, momentum, report  # noqa: E402
+from screener import events, forward, fundamentals, momentum, regime, report, sectors  # noqa: E402
 from screener.config import load_thresholds  # noqa: E402
 
 DATA = ROOT / "docs" / "data"
@@ -77,14 +77,70 @@ def earnings_summary(market, entry: dict) -> dict:
     return {"next": nxt, "prev_session": prev, "last": past[-1] if past else None}
 
 
-def track_signals(market, cfg: dict, as_of: dt.date, now: dt.datetime, mode: str, signals, frames, index_df) -> None:
+def track_signals(market, cfg: dict, as_of: dt.date, now: dt.datetime, mode: str, signals, frames, index_df,
+                  regime_by_date=None) -> None:
     """シグナルの自動追跡（フォワードテスト）。失敗しても、ほかの更新結果は保存できるようにする。"""
     try:
-        r = forward.update(DATA / "forward", market.key, cfg, as_of, mode, signals, frames, index_df, now)
+        r = forward.update(DATA / "forward", market.key, cfg, as_of, mode, signals, frames, index_df, now, regime_by_date)
         print(f"[{market.key}・追跡] シグナル {r['added']} 件を記録、成績が埋まった {r['finished']} 件（累計 {r['total']} 件）")
     except Exception as err:  # noqa: BLE001
         # GitHub Actions の画面に警告として出る
         print(f"::warning::[{market.key}] シグナルの追跡に失敗しました（ほかの更新は保存します）: {err!r}", file=sys.stderr)
+
+
+def update_regime(market, cfg: dict, as_of: dt.date, now: dt.datetime, frames, prices):
+    """相場環境を判定して docs/data/<市場>_regime.json に書く。戻り値は {日付: 判定}（失敗したら None）。
+
+    失敗しても、順張りの結果は保存できるようにする。
+    """
+    try:
+        index_df = prices.get(market.index_ticker)
+        if index_df is None:
+            raise RuntimeError("基準指数を取得できませんでした")
+        vix_df = prices.get(market.vol_ticker) if market.vol_ticker else None
+        table = regime.compute(frames, index_df, vix_df, cfg)
+        payload = regime.payload(table, cfg, as_of.isoformat(), now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        write_json(DATA / f"{market.key}_regime.json", {"market": market.key, "index_name": market.index_name,
+                                                        "universe": market.momentum_universe_name, **payload})
+        latest = payload["latest"]
+        print(f"[{market.key}・相場環境] {latest['date']}: {latest['regime']}（25日線上 {latest['p_short']}%、200日線上 {latest['p_long']}%）")
+        return regime.by_date(table)
+    except Exception as err:  # noqa: BLE001
+        print(f"::warning::[{market.key}] 相場環境の判定に失敗しました（ほかの更新は保存します）: {err!r}", file=sys.stderr)
+        return None
+
+
+def update_sectors(market, cfg: dict, as_of: dt.date, now: dt.datetime, frames, prices, universe) -> None:
+    """セクター・テーマの強弱を docs/data/<市場>_sectors.json に書く。失敗しても順張りの結果は保存する。"""
+    try:
+        index_df = prices.get(market.index_ticker)
+        if index_df is None:
+            raise RuntimeError("基準指数を取得できませんでした")
+        closes = pd.DataFrame({code: df["close"] for code, df in frames.items()}).reindex(index_df.index)
+        groups = sectors.groups_from_universe(universe)
+        etfs = {}
+        for name, ticker in market.sector_etfs:
+            df = prices.get(ticker)
+            if df is not None:
+                df = df.copy()
+                df.attrs["ticker"] = ticker
+            etfs[name] = df
+        payload = {
+            "market": market.key,
+            "as_of": as_of.isoformat(),
+            "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "universe": market.momentum_universe_name,
+            "index_name": market.index_name,
+            "config": cfg["sectors"],
+            "index": sectors.index_returns(index_df["close"], cfg),
+            "sectors": sectors.strength(closes, groups["sectors"], index_df["close"], cfg, etfs),
+            "themes": sectors.strength(closes, groups["themes"], index_df["close"], cfg),
+        }
+        write_json(DATA / f"{market.key}_sectors.json", payload)
+        top = [s["name"] for s in payload["sectors"] if s["strong"]]
+        print(f"[{market.key}・セクター] 強いセクター: {'、'.join(top) or 'なし'}")
+    except Exception as err:  # noqa: BLE001
+        print(f"::warning::[{market.key}] セクター強弱の集計に失敗しました（ほかの更新は保存します）: {err!r}", file=sys.stderr)
 
 
 def run_contrarian(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: bool) -> int:
@@ -212,8 +268,10 @@ def run_momentum(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: boo
     )
     tickers = {code: market.ticker(code) for code in universe["code"]}
     print(f"[{tag}] {as_of} 時点のデータを取得します（{len(tickers)} 銘柄）")
-    # 基準指数はシグナル追跡で指数の騰落率と比べるために使う
-    prices = fetch.download_daily(list(tickers.values()) + [market.index_ticker], as_of)
+    # 基準指数はシグナル追跡と相場環境の判定に、VIX は相場環境の判定に使う
+    # セクターETF はセクター強弱の参考に並べる（米国株のみ）
+    extra = [market.index_ticker] + ([market.vol_ticker] if market.vol_ticker else []) + [t for _, t in market.sector_etfs]
+    prices = fetch.download_daily(list(tickers.values()) + extra, as_of)
 
     frames = {code: prices[t] for code, t in tickers.items() if t in prices}
     closes = pd.DataFrame({code: df["close"] for code, df in frames.items()})
@@ -286,8 +344,10 @@ def run_momentum(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: boo
             "skipped": skipped,
         },
     )
+    regime_by_date = update_regime(market, cfg, as_of, now, frames, prices)
+    update_sectors(market, cfg, as_of, now, frames, prices, universe)
     track_signals(market, cfg, as_of, now, "momentum", forward.momentum_signals(stocks, as_of.isoformat()),
-                  frames, prices.get(market.index_ticker))
+                  frames, prices.get(market.index_ticker), regime_by_date)
     vcp = sum(1 for s in stocks if s.get("vcp"))
     print(
         f"[{tag}] 完了: 判定 {len(stocks)} 銘柄、全条件合格 {len(passed)}、VCP {vcp}、"
@@ -393,7 +453,25 @@ def main() -> int:
         code = max(code, run_momentum(market, cfg, as_of, now, args.force))
     if args.mode in ("all", "fundamentals"):
         code = max(code, run_fundamentals(market, cfg, as_of, now))
+    if args.mode in ("all", "contrarian"):
+        write_events(now)
     return code
+
+
+def write_events(now: dt.datetime) -> None:
+    """今後のイベント（休場日・SQ・FOMC など）を docs/data/events.json に書く。失敗しても更新は続ける。"""
+    try:
+        today = now.astimezone(dt.timezone(dt.timedelta(hours=9))).date()  # 日本の日付で数える
+        payload = events.build(today, EVENT_DAYS)
+        payload["generated_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        write_json(DATA / "events.json", payload)
+        for warning in payload["warnings"]:
+            print(f"::warning::{warning}", file=sys.stderr)
+    except Exception as err:  # noqa: BLE001
+        print(f"::warning::イベントカレンダーの作成に失敗しました: {err!r}", file=sys.stderr)
+
+
+EVENT_DAYS = 45  # 何日先までのイベントを書くか（画面は1か月分を出す）
 
 
 if __name__ == "__main__":

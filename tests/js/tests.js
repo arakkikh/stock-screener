@@ -5,6 +5,7 @@ import { pnl, ytd } from "../../docs/js/ledger.js";
 import { earningsStatus } from "../../docs/js/earnings.js";
 import { store, exportAll, importAll } from "../../docs/js/store.js";
 import { tradeOf, summarize, groupStats, kindOf, autoViolations, hasViolation, vsIndex, ytdVsIndex, SWITCH_REASON } from "../../docs/js/stats.js";
+import { earningsEvents, bannerHTML } from "../../docs/js/calendar.js";
 import { SETTINGS_KEY, capitalJpy, riskPctOf, stopCandidates, positionSize, portfolioRisk } from "../../docs/js/sizing.js";
 
 const results = { passed: 0, failed: [] };
@@ -473,6 +474,44 @@ test("年初来の累計で指数に勝っているか", () => {
   ];
   const y = ytdVsIndex(list, 2026, { jp: nikkei, us: sp }, 150);
   eq([y.actual, y.index, y.diff, y.count, y.missing, y.beat], [17500, 20000, -2500, 2, 1, false]);
+});
+
+// ---- フェーズ6C: イベントカレンダー ----
+const calMarkets = {
+  jp: { stocks: [
+    { code: "7203", name: "トヨタ", earnings: { next: "2026-12-05", prev_session: "2026-12-04" } },
+    { code: "6758", name: "ソニー", earnings: { next: "2027-02-01", prev_session: "2027-01-29" } },
+  ] },
+  us: { stocks: [{ code: "AAPL", name: "Apple", earnings: { next: "2026-12-02", prev_session: "2026-12-01" } }] },
+};
+const calMomentum = { jp: { stocks: [{ code: "7203", name: "トヨタ", earnings: { next: "2026-12-05" } }, { code: "8035", name: "東エレク", earnings: { next: "2026-12-10" } }] } };
+const openPos = [{ market: "jp", code: "7203", name: "トヨタ" }, { market: "jp", code: "9999", name: "外れた銘柄" }];
+test("決算予定は期間内だけ、重複なしで集め、保有中に印を付ける", () => {
+  const found = earningsEvents(calMarkets, calMomentum, openPos, "2026-12-01", "2026-12-31");
+  eq(found.map((e) => [e.code, e.date, e.held]).sort(), [["7203", "2026-12-05", true], ["8035", "2026-12-10", false], ["AAPL", "2026-12-02", false]]);
+});
+test("手入力の決算日を優先し、対象から外れた保有銘柄も出す", () => {
+  store.set("earn:jp:7203", "2026-12-20");
+  store.set("earn:jp:9999", "2026-12-15");
+  const found = earningsEvents(calMarkets, calMomentum, openPos, "2026-12-01", "2026-12-31");
+  eq(found.find((e) => e.code === "7203").date, "2026-12-20");
+  eq(found.find((e) => e.code === "9999").held, true);
+  store.remove("earn:jp:7203"); store.remove("earn:jp:9999");
+});
+const calEvents = { events: [
+  { date: "2026-12-09", prev: "2026-12-08", name: "FOMC", market: "us", important: true },
+  { date: "2026-12-18", prev: "2026-12-17", name: "オプション満期日", market: "us", important: false },
+] };
+test("重要イベントの前営業日と当日だけ注意を出す", () => {
+  eq(bannerHTML(calEvents, calMarkets, [], "2026-12-07"), "");
+  eq(bannerHTML(calEvents, calMarkets, [], "2026-12-08").includes("次の営業日（12/9）はFOMC"), true);
+  eq(bannerHTML(calEvents, calMarkets, [], "2026-12-09").includes("今日はFOMC"), true);
+  eq(bannerHTML(calEvents, calMarkets, [], "2026-12-17"), ""); // 重要でないイベント
+});
+test("保有銘柄の決算が近いと注意を出す（決算前営業日と当日）", () => {
+  eq(bannerHTML(calEvents, calMarkets, openPos, "2026-12-04").includes("保有中のトヨタの決算が近い"), true);
+  eq(bannerHTML(calEvents, calMarkets, openPos, "2026-12-03"), "");
+  eq(bannerHTML(calEvents, calMarkets, [{ ...openPos[0], sell: { date: "2026-11-01" } }], "2026-12-04"), ""); // 決済済み
 });
 
 document.getElementById("out").textContent =

@@ -42,6 +42,19 @@ jobs:
         id: fund
         continue-on-error: true
         run: python scripts/update.py --market us --mode fundamentals
+      # 新しい営業日のデータができたときだけ通知する（予備の実行で同じ通知を2回送らないため）
+      - name: 新しいデータがあるか確認
+        id: changed
+        run: |
+          if git diff --quiet -- docs/data/us.json; then echo "new=false" >> "$GITHUB_OUTPUT"; else echo "new=true" >> "$GITHUB_OUTPUT"; fi
+      # 送り先とウォッチリストは Secrets から渡す（ログには出さない）。失敗してもデータは保存する
+      - name: 通知（Discord）
+        if: steps.changed.outputs.new == 'true'
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          WATCHLIST: ${{ secrets.WATCHLIST }}
+        run: python scripts/notify.py --market us
       - name: 結果を保存
         run: |
           git config user.name "github-actions[bot]"

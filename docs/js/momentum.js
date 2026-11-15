@@ -5,6 +5,8 @@ import { earningsInfo } from "./earnings.js";
 import { loadPositions } from "./portfolio.js";
 import { mountFundCard } from "./fund.js";
 import { mountSizer } from "./sizer.js";
+import { regimeHTML, getRegime, mismatch } from "./regime.js";
+import { inStrong } from "./sectors.js";
 
 const ui = { filter: "passed", theme: "", sort: "rs", query: "", listScroll: 0, market: null };
 let current = null;
@@ -22,6 +24,7 @@ const FILTERS = [
   ["vcp", "VCP", (s) => Boolean(s.vcp)],
   ["breakout", "ブレイクアウト", (s) => s.vcp?.status === "breakout"],
   ["near", "7条件以上", (s) => s.count >= 7],
+  ["strong", "強いセクター・テーマ", (s) => inStrong(current.market, s)],
   ["all", "すべて", () => true],
 ];
 
@@ -59,8 +62,11 @@ function badgesHTML(d, s) {
     const cls = v.status === "breakout" ? "entry" : v.status === "failed" ? "warn" : "";
     const extra = v.status === "forming" ? `　ピボットまで ${pct(v.to_pivot_pct, 1)}` : "";
     out.push(`<span class="badge ${cls}">${VCP_STATUS[v.status]}${extra}</span>`);
+    const off = v.status === "breakout" ? mismatch(d.market, "momentum") : null;
+    if (off) out.push(`<span class="badge caution">${off.short}</span>`);
   }
   if (s.ma_break) out.push(`<span class="badge warn">${d.config.momentum.ma.fast}日線割れ</span>`);
+  if (inStrong(d.market, s)) out.push(`<span class="badge good">強いセクター</span>`);
   if (s.earnings && earningsInfo(d.market, s).soon) out.push(`<span class="badge warn">決算前</span>`);
   if (s.stale) out.push(`<span class="badge">データが古い</span>`);
   for (const theme of s.themes) out.push(`<span class="badge tag">${esc(theme)}</span>`);
@@ -148,7 +154,7 @@ function refreshList() {
 export function renderMomentumList(app, d) {
   if (ui.market !== d.market) Object.assign(ui, { theme: "", query: "", listScroll: 0, market: d.market });
   current = d;
-  app.innerHTML = introHTML(d) + `<div id="mo-controls">${controlsHTML(d)}</div><div id="mo-list">${listHTML(d)}</div>` + rulesHTML(d);
+  app.innerHTML = regimeHTML(getRegime(d.market)) + introHTML(d) + `<div id="mo-controls">${controlsHTML(d)}</div><div id="mo-list">${listHTML(d)}</div>` + rulesHTML(d);
   window.scrollTo(0, ui.listScroll);
 }
 
@@ -159,6 +165,8 @@ function alertsHTML(d, s) {
   const v = s.vcp, ma = d.config.momentum.ma;
   if (v?.status === "breakout")
     out.push(`<div class="alert entry">ブレイクアウト<small>${shortDate(v.breakout_date)} にピボット ${price(v.pivot, d.market)} を、平均の${number(v.volume_ratio, 1)}倍の出来高で上抜けました。</small></div>`);
+  const off = v?.status === "breakout" ? mismatch(d.market, "momentum") : null;
+  if (off) out.push(`<div class="alert ${off.level}">${off.short}<small>${off.text}候補は消していません。</small></div>`);
   if (v?.status === "weak")
     out.push(`<div class="alert info">ピボットを上抜けましたが、出来高が足りません（平均の${number(v.volume_ratio, 1)}倍）。</div>`);
   if (v?.status === "failed")

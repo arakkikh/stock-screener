@@ -6,6 +6,9 @@ import { drawChart, legendHTML } from "./chart.js";
 import { earningsInfo as earningsOf, overrideKey } from "./earnings.js";
 import { renderPortfolio, renderNewPosition, renderSettings, renderStats, initPortfolio, loadPositions } from "./portfolio.js";
 import { mountSizer } from "./sizer.js";
+import { regimeHTML, setRegime, getRegime, mismatch } from "./regime.js";
+import { setSectors, getSectors, watchOnly, sectorDowntrend, inStrong, renderSectors } from "./sectors.js";
+import { renderCalendar, bannerHTML } from "./calendar.js";
 import { renderMomentumList, renderMomentumDetail, initMomentum } from "./momentum.js";
 import { renderFundList, renderFundDetail, mountFundCard, initFund } from "./fund.js";
 import { renderBacktest, initBacktest } from "./backtest.js";
@@ -118,6 +121,7 @@ const FILTERS = [
   ["lit", "条件点灯", (s) => s.count > 0],
   ["warn", "警戒", hasWarning],
   ["hold", "保有継続ゾーン", (s) => s.trend.perfect_order],
+  ["strong", "強いセクター・テーマ", (s) => inStrong(current.market, s)],
 ];
 
 const SORTS = {
@@ -144,13 +148,16 @@ function badgesHTML(stock) {
   const recentEntry = recentOf(stock, "entry");
   if (isStop(stock)) out.push(`<span class="badge danger">最優先で損切り</span>`);
   if (stock.entry) out.push(`<span class="badge entry">エントリー候補</span>`);
+  const off = stock.entry ? mismatch(current.market, "contrarian") : null;
+  if (off) out.push(`<span class="badge caution">${off.short}</span>`);
   else if (recentEntry) out.push(`<span class="badge">候補 ${shortDate(recentEntry)}</span>`);
   for (const k of stock.warnings) if (k !== "two_black") out.push(`<span class="badge warn">${LABEL[k]}</span>`);
   if (stock.trend.exit_warning) out.push(`<span class="badge warn">手仕舞い警戒</span>`);
   if (stock.trend.perfect_order) out.push(`<span class="badge good">保有継続ゾーン</span>`);
   if (stock.bounce) out.push(`<span class="badge">100日線で反発</span>`);
   if (stock.divergence) out.push(`<span class="badge">ダイバージェンス</span>`);
-  if (stock.watch_only) out.push(`<span class="badge">見るだけ</span>`);
+  if (watchOnly(current.market, stock)) out.push(`<span class="badge">見るだけ</span>`);
+  if (inStrong(current.market, stock)) out.push(`<span class="badge good">強いセクター</span>`);
   if (earningsInfo(stock).soon) out.push(`<span class="badge warn">決算前</span>`);
   if (stock.stale) out.push(`<span class="badge">データが古い</span>`);
   for (const theme of stock.themes) out.push(`<span class="badge tag">${esc(theme)}</span>`);
@@ -197,7 +204,7 @@ function controlsHTML(d) {
       <select data-control="theme" aria-label="テーマ・セクター">
         ${option("", "テーマ・業種")}
         <optgroup label="テーマ">${themes.map((t) => option(t, t)).join("")}</optgroup>
-        <optgroup label="セクター">${sectors.map((s) => option(s, s + (d.sectors[s].downtrend ? "（下落中）" : ""))).join("")}</optgroup>
+        <optgroup label="セクター">${sectors.map((s) => option(s, s + (sectorDowntrend(d.market, s, d.sectors[s].downtrend) ? "（下落中）" : ""))).join("")}</optgroup>
       </select>
       <select data-control="sort" aria-label="並び順">
         ${sortOption("count", "点灯数が多い順")}${sortOption("change", "前日比が低い順")}
@@ -224,7 +231,7 @@ function rulesHTML(d) {
 }
 
 function renderList(d) {
-  app.innerHTML = thermometerHTML(d) + `<div id="controls">${controlsHTML(d)}</div><div id="list">${listHTML(d)}</div>` + rulesHTML(d);
+  app.innerHTML = regimeHTML(getRegime(d.market)) + thermometerHTML(d) + `<div id="controls">${controlsHTML(d)}</div><div id="list">${listHTML(d)}</div>` + rulesHTML(d);
   window.scrollTo(0, ui.listScroll);
 }
 
@@ -238,10 +245,12 @@ function alertsHTML(d, s) {
   const earn = earningsInfo(s);
   if (isStop(s)) out.push(`<div class="alert danger">最優先で損切り<small>下放れ二本黒（窓を開けて下落し、陰線が2本）が出ています。</small></div>`);
   if (s.entry) out.push(`<div class="alert entry">エントリー候補<small>買い条件の点灯後に反転サイン（${esc(today)}）が出ました。</small></div>`);
+  const off = s.entry ? mismatch(d.market, "contrarian") : null;
+  if (off) out.push(`<div class="alert ${off.level}">${off.short}<small>${off.text}候補は消していません。</small></div>`);
   if (s.trend.exit_warning)
     out.push(`<div class="alert warn">手仕舞い警戒<small>${d.config.ma.short}日線と${d.config.ma.mid}日線の接近が${s.trend.approach_count}回目で、高値を更新できていません。</small></div>`);
   if (earn.soon) out.push(`<div class="alert warn">決算はまたがない<small>決算発表の予定日は ${shortDate(earn.next)} です。</small></div>`);
-  if (s.watch_only) out.push(`<div class="alert info">見るだけ：セクター（${esc(s.sector)}）が下落トレンド中です。</div>`);
+  if (watchOnly(d.market, s)) out.push(`<div class="alert info">見るだけ：セクター（${esc(s.sector)}）が下落トレンド中です。<a href="#${d.market}/s">セクターの強弱を見る</a></div>`);
   if (s.stale) out.push(`<div class="alert info">最新の株価を取得できませんでした。${shortDate(s.date)} 時点のデータです。</div>`);
   return out.join("");
 }
@@ -319,7 +328,7 @@ function infoHTML(d, s) {
       <tr><td>${d.config.ma.mid}日線</td><td class="num">${price(s.levels.ma_mid, d.market)}</td></tr>
       <tr><td>${d.config.ma.long}日線</td><td class="num">${price(s.levels.ma_long, d.market)}</td></tr>
       <tr><td>決算発表</td><td>${earningsInfo(s).text}</td></tr>
-      <tr><td>セクター</td><td>${esc(s.sector)}${sector?.downtrend ? "（下落トレンド）" : ""}</td></tr>
+      <tr><td>セクター</td><td><a href="#${d.market}/s">${esc(s.sector)}</a>${sectorDowntrend(d.market, s.sector, sector?.downtrend) ? "（下落トレンド）" : ""}</td></tr>
     </table>
     <p class="small muted">決算日は自動取得した予定日で、変更されることがあります。企業の発表で確認してください。</p>
     <label class="small muted" for="earn-override">決算日を自分で入力する（自動取得より優先。空にすると自動に戻ります）</label>
@@ -385,12 +394,12 @@ async function loadPortfolioContext() {
   return { markets: { jp, us }, momentum: { jp: mjp, us: mus }, fx };
 }
 
-const MODE_PATH = { contrarian: "", momentum: "/m", fund: "/f" };
+const MODE_PATH = { contrarian: "", momentum: "/m", fund: "/f", sector: "/s" };
 
 // 上部のタブ（市場）と、その下の切り替え（逆張り／順張り／ファンダ）の表示を合わせる
 function showTabs(market, mode) {
   for (const tab of document.querySelectorAll("#market-tabs a")) {
-    tab.classList.toggle("on", tab.dataset.market === (market ?? "portfolio"));
+    tab.classList.toggle("on", tab.dataset.market === (market ?? (location.hash.startsWith("#calendar") ? "calendar" : "portfolio")));
     if (MARKETS.includes(tab.dataset.market)) tab.href = `#${tab.dataset.market}${MODE_PATH[mode]}`;
   }
   const modes = document.getElementById("mode-tabs");
@@ -410,10 +419,20 @@ async function route() {
   const stale = () => token !== routeToken;
   const [first, second, third, fourth, fifth] = decodeURIComponent(location.hash.slice(1)).split("/");
   const isPortfolio = first === "portfolio";
-  const market = isPortfolio ? null : MARKETS.includes(first) ? first : store.get("market", "jp");
-  const mode = isPortfolio ? "contrarian" : second === "m" ? "momentum" : second === "f" ? "fund" : "contrarian";
+  const isCalendar = first === "calendar";
+  const market = isPortfolio || isCalendar ? null : MARKETS.includes(first) ? first : store.get("market", "jp");
+  const mode = isPortfolio ? "contrarian" : second === "m" ? "momentum" : second === "f" ? "fund" : second === "s" ? "sector" : "contrarian";
   showTabs(market, mode);
+  updateBanner(token);
   try {
+    if (isCalendar) {
+      const context = await loadPortfolioContext();
+      const events = await getJSON("data/events.json").catch(() => null);
+      if (stale()) return;
+      document.getElementById("as-of").textContent = "";
+      renderCalendar(app, events, context.markets, context.momentum, loadPositions());
+      return;
+    }
     if (isPortfolio) {
       const context = await loadPortfolioContext();
       if (stale()) return;
@@ -437,6 +456,16 @@ async function route() {
       return;
     }
     store.set("market", market);
+    // 相場環境（なくても画面は出す）
+    if (mode !== "fund" && !getRegime(market)) setRegime(market, await getJSON(`data/${market}_regime.json`).catch(() => null));
+    // セクター強弱（一覧の絞り込みと「見るだけ」に使う。なくても画面は出す）
+    if (!getSectors(market)) setSectors(market, await getJSON(`data/${market}_sectors.json`).catch(() => null));
+    if (stale()) return;
+    if (mode === "sector") {
+      document.getElementById("as-of").textContent = "";
+      renderSectors(app, getSectors(market));
+      return;
+    }
     if (mode === "momentum") {
       const data = await getJSON(`data/${market}_momentum.json`);
       const base = await getJSON(`data/${market}.json`);
@@ -449,13 +478,14 @@ async function route() {
     }
     if (second === "bt") {
       const data = await getJSON(`data/${market}_backtest.json`);
-      const [forward, base] = await Promise.all([
+      const [forward, base, study] = await Promise.all([
         getJSON(`data/forward/${market}_summary.json`).catch(() => null),
         getJSON(`data/${market}.json`).catch(() => null),
+        getJSON(`data/${market}_regime_study.json`).catch(() => null),
       ]);
       if (stale()) return;
       document.getElementById("as-of").textContent = "";
-      renderBacktest(app, data, forward, base?.config ?? null);
+      renderBacktest(app, data, forward, base?.config ?? null, study);
       window.scrollTo(0, 0);
       return;
     }
@@ -490,6 +520,21 @@ async function route() {
   document.getElementById("as-of").textContent = `${shortDate(current.as_of)} 終値時点`;
   if (second) renderDetail(current, second);
   else renderList(current);
+}
+
+// 画面上部の注意（重要イベントの前営業日・当日、保有銘柄の決算）。読み込めなくても画面は出す
+async function updateBanner(token) {
+  const box = document.getElementById("event-banner");
+  try {
+    const [events, jp, us] = await Promise.all([
+      getJSON("data/events.json").catch(() => null),
+      getJSON("data/jp.json").catch(() => null),
+      getJSON("data/us.json").catch(() => null),
+    ]);
+    if (token === routeToken) box.innerHTML = bannerHTML(events, { jp, us }, loadPositions());
+  } catch {
+    box.innerHTML = "";
+  }
 }
 
 app.addEventListener("click", async (event) => {
