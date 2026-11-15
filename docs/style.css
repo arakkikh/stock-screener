@@ -178,3 +178,25 @@ table.bt td.best { outline: 2px solid var(--accent); outline-offset: -2px; }
 .better { color: var(--accent); }
 .worse { color: var(--muted); }
 table.bt select, p select { width: auto; display: inline-block; font-size: 14px; padding: 2px 4px; }
+
+/* 資金管理（フェーズ5） */
+.subnav { display: flex; gap: 4px; margin-bottom: 10px; }
+.subnav a {
+  flex: 1; text-align: center; padding: 6px 0; border-radius: 8px; text-decoration: none;
+  color: var(--muted); background: var(--chip); font-size: 13px; font-weight: 600;
+}
+.subnav a.on { background: var(--text); color: var(--card); }
+.bars { margin: 4px 0 8px; }
+.bar-row { margin: 5px 0; }
+.bar-label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.bar-label span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.sz-cands { flex-wrap: wrap; overflow-x: visible; padding-top: 8px; }
+.sz-cands button { white-space: normal; text-align: left; }
+.pos-risk { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; margin: 8px 0; }
+.pos-risk label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
+.pos-risk .check { margin: 0 0 6px; }
+.sizer-box { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 10px; }
+.sizer-box h2 { font-size: 14px; }
+table.bt td.num { white-space: nowrap; }

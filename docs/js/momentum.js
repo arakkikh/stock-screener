@@ -4,6 +4,7 @@ import { drawChart, legendItems, LINE_COLORS } from "./chart.js";
 import { earningsInfo } from "./earnings.js";
 import { loadPositions } from "./portfolio.js";
 import { mountFundCard } from "./fund.js";
+import { mountSizer } from "./sizer.js";
 
 const ui = { filter: "passed", theme: "", sort: "rs", query: "", listScroll: 0, market: null };
 let current = null;
@@ -265,6 +266,7 @@ export async function renderMomentumDetail(app, d, code) {
       </table>
     </section>
     <div id="fund-card"></div>
+    <section class="card" id="sizer"></section>
     <section class="card">
       <h2>ポジション</h2>
       ${held ? `<p class="small">この銘柄を保有中です。<a href="#portfolio">保有・記録を見る</a></p>` : ""}
@@ -273,7 +275,19 @@ export async function renderMomentumDetail(app, d, code) {
     </section>`;
   window.scrollTo(0, 0);
   mountFundCard(document.getElementById("fund-card"), d.market, code);
-  const el = document.getElementById("mo-chart");
+  const sizerBox = document.getElementById("sizer");
+  const el = document.getElementById("mo-chart"); // 待っている間に別の画面へ移っても、この画面の要素だけを使う
+  // 資金管理の設定は、逆張りのデータに入っているもの（毎日いちばん先に更新される）を使う
+  const [fx, base] = await Promise.all([
+    getJSON("data/fx.json").catch(() => null),
+    getJSON(`data/${d.market}.json`).catch(() => null),
+  ]);
+  if (sizerBox.isConnected) {
+    mountSizer(sizerBox, {
+      market: d.market, cfg: base?.config ?? d.config, digits: d.decimals, fx, kind: "momentum",
+      levels: { ma_fast: s.ma_fast }, buyPrice: s.close,
+    });
+  }
   if (!el) return;
   try {
     const data = await getJSON(`data/${d.market}/m/${encodeURIComponent(code)}.json`);

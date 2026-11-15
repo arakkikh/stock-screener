@@ -104,6 +104,11 @@ export function validatePosition(p) {
   if (p.reason === "c1" && !positive(p.target)) errors.push("利確の水準を入力してください。");
   if (p.reason === "c3" && !["2", "3"].includes(p.aim)) errors.push("−2σ狙いか −3σ狙いかを選んでください。");
   if (p.reason === "theme" && !/^\d{4}-\d{2}-\d{2}$/.test(p.deadline || "")) errors.push("手仕舞いの期限を入力してください。");
+  // 損切り価格（リスク計算・R倍数に使う）。フェーズ5より前の記録にはないので、項目があるときだけ確かめる
+  if (p.stop !== undefined) {
+    if (!positive(p.stop)) errors.push("損切り価格を入力してください（計算機の候補から選べます）。");
+    else if (positive(p.buyPrice) && p.stop >= p.buyPrice) errors.push("損切り価格は買値より低くしてください。");
+  }
   const memo = p.memo || {};
   if (!(memo.why || "").trim()) errors.push("メモ「なぜこの銘柄か」は必須です。");
   if (!(memo.basis || "").trim()) errors.push("メモ「根拠は何か」は必須です。");

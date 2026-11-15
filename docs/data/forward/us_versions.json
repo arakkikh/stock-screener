@@ -1,0 +1,138 @@
+{
+ "217106d6": {
+  "mode": "contrarian",
+  "first": "2026-11-13",
+  "config": {
+   "ma": {
+    "short": 5,
+    "mid": 25,
+    "long": 100
+   },
+   "buy": {
+    "drop_pct": -2.5,
+    "ma_deviation_pct": -5.0,
+    "bb_period": 20,
+    "bb_ddof": 0,
+    "bb_touch": "low",
+    "rci_period": 9,
+    "rci_max": -90
+   },
+   "ma100_bounce": {
+    "lookback_days": 5,
+    "near_pct": 1.0
+   },
+   "swing": {
+    "window": 3
+   },
+   "bb_divergence": {
+    "min_gap_days": 5,
+    "max_gap_days": 40,
+    "min_rebound_pct": 3.0,
+    "retest_tolerance_pct": 3.0
+   },
+   "zone": {
+    "lookback_days": 60,
+    "low_pct": 25,
+    "high_pct": 75
+   },
+   "candle": {
+    "long_body_pct": 1.5,
+    "doji_body_ratio": 0.1,
+    "hanging_shadow_ratio": 2.0,
+    "hanging_upper_max_ratio": 0.15,
+    "window_min_pct": 0.2,
+    "similar_body_ratio": 0.5
+   },
+   "gap_up": {
+    "min_pct": 1.0
+   },
+   "island": {
+    "max_days": 10
+   },
+   "double": {
+    "similar_pct": 3.0,
+    "min_gap_days": 5,
+    "max_gap_days": 60,
+    "min_depth_pct": 3.0,
+    "max_breakout_days": 20
+   },
+   "entry": {
+    "lookback_days": 5,
+    "min_conditions": 2
+   },
+   "trend": {
+    "slope_days": 1,
+    "approach_pct": 1.5,
+    "exit_warning_count": 3
+   },
+   "forward": {
+    "min_samples": 30,
+    "entry_max_hold": 20,
+    "entry_stop_pct": null,
+    "breakout_max_hold": 40,
+    "lost_after_days": 120
+   }
+  }
+ },
+ "b23b5c58": {
+  "mode": "momentum",
+  "first": "2026-11-13",
+  "config": {
+   "momentum": {
+    "ma": {
+     "fast": 50,
+     "mid": 150,
+     "slow": 200
+    },
+    "template": {
+     "slow_rising_days": 22,
+     "year_days": 252,
+     "above_low_pct": 30,
+     "within_high_pct": 25,
+     "rs_min": 70
+    },
+    "rs": {
+     "periods": [
+      63,
+      126,
+      189,
+      252
+     ],
+     "weights": [
+      2,
+      1,
+      1,
+      1
+     ]
+    },
+    "vcp": {
+     "lookback_days": 120,
+     "swing_window": 5,
+     "min_contractions": 2,
+     "max_contractions": 4,
+     "max_first_depth_pct": 35,
+     "max_last_depth_pct": 10,
+     "min_depth_pct": 2,
+     "shrink_ratio": 1.0,
+     "max_high_rise_pct": 3,
+     "require_volume_dry": true,
+     "volume_avg_days": 50,
+     "breakout_volume_ratio": 1.5,
+     "breakout_recent_days": 5
+    },
+    "exit": {
+     "stop_warn_pct": -7,
+     "stop_loss_pct": -8,
+     "ma_break_volume_ratio": 1.5
+    }
+   },
+   "forward": {
+    "min_samples": 30,
+    "entry_max_hold": 20,
+    "entry_stop_pct": null,
+    "breakout_max_hold": 40,
+    "lost_after_days": 120
+   }
+  }
+ }
+}

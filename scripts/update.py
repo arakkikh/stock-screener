@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 import markets  # noqa: E402
 from markets import fetch  # noqa: E402
-from screener import fundamentals, momentum, report  # noqa: E402
+from screener import forward, fundamentals, momentum, report  # noqa: E402
 from screener.config import load_thresholds  # noqa: E402
 
 DATA = ROOT / "docs" / "data"
@@ -75,6 +75,16 @@ def earnings_summary(market, entry: dict) -> dict:
     prev = fetch.previous_session(market, dt.date.fromisoformat(nxt)).isoformat() if nxt else None
     past = entry.get("past") or []
     return {"next": nxt, "prev_session": prev, "last": past[-1] if past else None}
+
+
+def track_signals(market, cfg: dict, as_of: dt.date, now: dt.datetime, mode: str, signals, frames, index_df) -> None:
+    """シグナルの自動追跡（フォワードテスト）。失敗しても、ほかの更新結果は保存できるようにする。"""
+    try:
+        r = forward.update(DATA / "forward", market.key, cfg, as_of, mode, signals, frames, index_df, now)
+        print(f"[{market.key}・追跡] シグナル {r['added']} 件を記録、成績が埋まった {r['finished']} 件（累計 {r['total']} 件）")
+    except Exception as err:  # noqa: BLE001
+        # GitHub Actions の画面に警告として出る
+        print(f"::warning::[{market.key}] シグナルの追跡に失敗しました（ほかの更新は保存します）: {err!r}", file=sys.stderr)
 
 
 def run_contrarian(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: bool) -> int:
@@ -177,6 +187,10 @@ def run_contrarian(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: b
         )
 
     print(f"[{market.key}] 完了: {len(charts)} 銘柄を更新、取得失敗 {failed or 'なし'}、最新日のデータなし {stale or 'なし'}")
+
+    frames = {code: prices[t] for code, t in tickers.items() if t in prices}
+    track_signals(market, cfg, as_of, now, "contrarian", forward.contrarian_signals(stocks, as_of.isoformat()),
+                  frames, index_df)
     return 0
 
 
@@ -198,7 +212,8 @@ def run_momentum(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: boo
     )
     tickers = {code: market.ticker(code) for code in universe["code"]}
     print(f"[{tag}] {as_of} 時点のデータを取得します（{len(tickers)} 銘柄）")
-    prices = fetch.download_daily(list(tickers.values()), as_of)
+    # 基準指数はシグナル追跡で指数の騰落率と比べるために使う
+    prices = fetch.download_daily(list(tickers.values()) + [market.index_ticker], as_of)
 
     frames = {code: prices[t] for code, t in tickers.items() if t in prices}
     closes = pd.DataFrame({code: df["close"] for code, df in frames.items()})
@@ -271,6 +286,8 @@ def run_momentum(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: boo
             "skipped": skipped,
         },
     )
+    track_signals(market, cfg, as_of, now, "momentum", forward.momentum_signals(stocks, as_of.isoformat()),
+                  frames, prices.get(market.index_ticker))
     vcp = sum(1 for s in stocks if s.get("vcp"))
     print(
         f"[{tag}] 完了: 判定 {len(stocks)} 銘柄、全条件合格 {len(passed)}、VCP {vcp}、"

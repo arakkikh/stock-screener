@@ -4,7 +4,8 @@ import { LABEL, REVERSAL, WARNING } from "./labels.js";
 import { esc, price, number, pct, signClass, shortDate, todayISO, daysBetween } from "./format.js";
 import { drawChart, legendHTML } from "./chart.js";
 import { earningsInfo as earningsOf, overrideKey } from "./earnings.js";
-import { renderPortfolio, renderNewPosition, initPortfolio, loadPositions } from "./portfolio.js";
+import { renderPortfolio, renderNewPosition, renderSettings, renderStats, initPortfolio, loadPositions } from "./portfolio.js";
+import { mountSizer } from "./sizer.js";
 import { renderMomentumList, renderMomentumDetail, initMomentum } from "./momentum.js";
 import { renderFundList, renderFundDetail, mountFundCard, initFund } from "./fund.js";
 import { renderBacktest, initBacktest } from "./backtest.js";
@@ -217,7 +218,7 @@ function rulesHTML(d) {
       <li>決算はまたがない。</li>
       <li>迷ったら入らない。入るなら小ロット。</li>
     </ul>
-    <p><a href="#${d.market}/bt">過去10年の検証結果（バックテスト）を見る</a></p>
+    <p><a href="#${d.market}/bt">検証結果（過去10年のバックテストと、実運用での成績）を見る</a></p>
     <p class="muted">1〜4の丸は買い条件の点灯（1: 急落、2: ${d.config.ma.mid}日線からの乖離、3: ボリンジャーバンド、4: RCI）。赤い3は −3σ 到達。</p>
   </section>`;
 }
@@ -349,6 +350,7 @@ async function renderDetail(d, code) {
     </section>
     ${conditionsHTML(d, s)}${signsHTML(d, s)}${infoHTML(d, s)}
     <div id="fund-card"></div>
+    <section class="card" id="sizer"></section>
     <section class="card">
       <h2>ポジション</h2>
       ${held ? `<p class="small">この銘柄を保有中です。<a href="#portfolio">保有・記録を見る</a></p>` : ""}
@@ -357,7 +359,15 @@ async function renderDetail(d, code) {
     </section>`;
   window.scrollTo(0, 0);
   mountFundCard(document.getElementById("fund-card"), d.market, code);
-  const el = document.getElementById("stock-chart");
+  const sizerBox = document.getElementById("sizer");
+  const el = document.getElementById("stock-chart"); // 待っている間に別の画面へ移っても、この画面の要素だけを使う
+  const fx = await getJSON("data/fx.json").catch(() => null);
+  if (sizerBox.isConnected) {
+    mountSizer(sizerBox, {
+      market: d.market, cfg: d.config, digits: d.decimals, fx, kind: "contrarian",
+      levels: { bb_l3: s.levels.bb_l3 }, buyPrice: s.close,
+    });
+  }
   try {
     const data = await getJSON(`data/${d.market}/${encodeURIComponent(code)}.json`);
     if (el.isConnected) drawChart(el, data, { digits: d.decimals, labelDays: d.config.display.recent_days });
@@ -415,6 +425,12 @@ async function route() {
         const chart = await getJSON(`data/${folder}/${encodeURIComponent(fourth)}.json`).catch(() => null);
         if (stale()) return;
         renderNewPosition(app, context, third, fourth, chart, kind);
+      } else if (second === "settings") {
+        renderSettings(app, context);
+      } else if (second === "stats") {
+        const [ijp, ius] = await Promise.all(MARKETS.map((m) => getJSON(`data/${m}/_index.json`).catch(() => null)));
+        if (stale()) return;
+        renderStats(app, context, { jp: ijp, us: ius });
       } else {
         renderPortfolio(app, context);
       }
@@ -433,9 +449,13 @@ async function route() {
     }
     if (second === "bt") {
       const data = await getJSON(`data/${market}_backtest.json`);
+      const [forward, base] = await Promise.all([
+        getJSON(`data/forward/${market}_summary.json`).catch(() => null),
+        getJSON(`data/${market}.json`).catch(() => null),
+      ]);
       if (stale()) return;
       document.getElementById("as-of").textContent = "";
-      renderBacktest(app, data);
+      renderBacktest(app, data, forward, base?.config ?? null);
       window.scrollTo(0, 0);
       return;
     }
@@ -526,7 +546,7 @@ app.addEventListener("change", (event) => {
   }
 });
 
-initPortfolio(app, route);
+initPortfolio(app, route, getJSON);
 initMomentum(app, getJSON);
 initFund(app, getJSON);
 initBacktest(app);

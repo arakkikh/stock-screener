@@ -4,6 +4,7 @@ import { LABEL, REVERSAL, WARNING } from "./labels.js";
 
 const ui = { horizon: null, hold: null, mohold: null, query: "" };
 let current = null;
+let currentForward = null, currentCfg = null;
 
 const BUY = {
   cond1: "条件1（急落）", cond2: "条件2（25日線乖離）", cond3: "条件3（−2σ以下）", bb3: "条件3（−3σ到達）", cond4: "条件4（RCI）",
@@ -158,10 +159,109 @@ function momentumHTML(d) {
   </section>`;
 }
 
+// ------------------------------------------------------------ 実運用での成績（フォワードテスト）
+
+const FORWARD_GROUPS = [
+  ["entry", "逆張り：エントリー候補", "contrarian"],
+  ["breakout", "順張り：ブレイクアウト（出来高を伴う上抜け）", "momentum"],
+  ["warn", "逆張り：警戒サイン（すべて）", "contrarian"],
+];
+
+// 成績のセル（実運用）。警戒サインは「下がった割合」を的中率として出す
+function liveCell(stats, warn) {
+  if (!stats) return `<td class="muted">—</td>`;
+  const rate = warn ? `的中${number(stats.hit, 0)}%` : `勝率${number(stats.win, 0)}%`;
+  return `<td><b class="num">${pct(stats.mean)}</b><br><span class="small muted num">${rate}<br>${count(stats.n)}件</span></td>`;
+}
+
+function backtestCell(stats, warn) {
+  if (!stats) return `<td class="muted">—</td>`;
+  const rate = warn ? "" : `勝率${number(stats.win, 0)}%<br>`;
+  return `<td><span class="num">${pct(stats.mean)}</span><br><span class="small muted num">${rate}${count(stats.n)}回</span></td>`;
+}
+
+// 警戒サインは「下がれば当たり」なので、指数より低いほうに色を付ける
+function excessCell(stats, warn = false) {
+  if (!stats || stats.excess == null) return `<td class="muted">—</td>`;
+  const good = warn ? stats.excess < 0 : stats.excess > 0;
+  return `<td><b class="num ${good ? "better" : "worse"}">${pct(stats.excess)}</b><br><span class="small muted num">指数 ${pct(stats.index)}</span></td>`;
+}
+
+// バックテストの、同じシグナル・同じ出口の成績（直近2年）
+function backtestFor(d, group, cfg) {
+  const f = cfg.forward;
+  if (group === "entry") {
+    const trade = d.contrarian.trades.find((t) => t.strategy === "entry" && t.max_hold === f.entry_max_hold && t.stop === f.entry_stop_pct);
+    return { h: d.contrarian.signals.entry?.test.h ?? {}, trade: trade?.test ?? null };
+  }
+  if (group === "breakout") {
+    const v = d.momentum?.variants.find((x) => x.current);
+    const trade = v?.trades.find((t) => t.max_hold === f.breakout_max_hold);
+    return { h: v?.breakout.test.h ?? {}, trade: trade?.test ?? null };
+  }
+  return { h: {}, trade: null };
+}
+
+function forwardGroupHTML(d, f, cfg, [group, label, mode]) {
+  const warn = group === "warn";
+  const minSamples = cfg.forward.min_samples;
+  const list = f.groups.filter((g) => g.group === group);
+  const current = list.find((g) => g.version === f.current[mode]);
+  const older = list.filter((g) => g !== current);
+  const bt = backtestFor(d, group, cfg);
+  const table = (g) => {
+    const main = g.h["10"];
+    const judge = (main?.n ?? 0) < minSamples
+      ? `<div class="alert info">まだ判断できない<small>10営業日後まで分かったシグナルが ${main?.n ?? 0}件です（${minSamples}件以上で判断の目安にします）。今の数字は偶然に大きく左右されます。</small></div>`
+      : "";
+    const rows = f.horizons
+      .map((h) => `<tr><td>${h}営業日後</td>${liveCell(g.h[String(h)], warn)}${warn ? "" : backtestCell(bt.h[String(h)], warn)}${excessCell(g.h[String(h)], warn)}</tr>`)
+      .join("");
+    const exitRow = warn ? "" : `<tr class="base"><td>出口ルールどおり<br><span class="small muted">${group === "entry" ? `25日線で利確・最大${cfg.forward.entry_max_hold}日` : `${cfg.momentum.exit.stop_loss_pct}%で損切り・50日線割れ・最大${cfg.forward.breakout_max_hold}日`}</span></td>
+      ${g.exit ? `<td><b class="num">${pct(g.exit.mean)}</b><br><span class="small muted num">勝率${number(g.exit.win, 0)}%・${count(g.exit.n)}件<br>平均${number(g.exit.days, 0)}日</span></td>` : `<td class="muted small">決済待ち</td>`}
+      ${bt.trade ? `<td><span class="num">${pct(bt.trade.mean)}</span><br><span class="small muted num">勝率${number(bt.trade.win, 0)}%<br>${count(bt.trade.n)}回</span></td>` : `<td class="muted">—</td>`}<td></td></tr>`;
+    return `${judge}<p class="small muted">シグナル ${count(g.signals)}件（${shortDate(g.first)}〜${shortDate(g.last)}）${g.lost ? `・追跡できなくなった ${g.lost}件を除く` : ""}</p>
+      <div class="scroll"><table class="bt"><tr><th></th><th>実運用</th>${warn ? "" : "<th>バックテスト<br><span class='small'>直近2年</span></th>"}<th>指数との差<br><span class="small">実運用</span></th></tr>${rows}${exitRow}</table></div>`;
+  };
+  let body = current ? table(current) : `<p class="small muted">今の設定になってから、まだこのシグナルは出ていません。</p>`;
+  if (warn && current && Object.keys(f.warn_types).length) {
+    const typeRows = Object.entries(f.warn_types)
+      .map(([key, t]) => `<tr><td>${esc(LABEL[key] ?? key)}</td>${liveCell(t.h10, true)}${backtestCell(d.contrarian.signals[key]?.test.h["10"], true)}</tr>`)
+      .join("");
+    body += `<h3>警戒サインの種類別（10営業日後・全期間）</h3><div class="scroll"><table class="bt"><tr><th>サイン</th><th>実運用</th><th>バックテスト<br><span class="small">直近2年</span></th></tr>${typeRows}</table></div>`;
+  }
+  if (older.length) {
+    body += `<details><summary class="small">以前の設定でのシグナル（${older.length}）</summary>${older
+      .map((g) => `<h3>設定 ${esc(g.version)}（${shortDate(f.versions[g.version]?.first)}〜）</h3>${table(g)}`)
+      .join("")}</details>`;
+  }
+  return `<h3>${esc(label)}</h3>${body}`;
+}
+
+function forwardHTML(d, f, cfg) {
+  if (!f) {
+    return `<section class="card"><h2>実運用での成績（フォワードテスト）</h2>
+      <p class="small muted">まだ追跡を始めていません。次の毎日の更新から、その日に出たシグナルを記録していきます。</p></section>`;
+  }
+  const changedSinceBacktest = JSON.stringify(d.config.entry) !== JSON.stringify(cfg.entry) || JSON.stringify(d.config.buy) !== JSON.stringify(cfg.buy);
+  return `<section class="card">
+    <h2>実運用での成績（フォワードテスト）</h2>
+    <p class="small"><strong>追跡開始 ${f.started.replaceAll("-", "/")}</strong>。毎日の更新で出たシグナルをすべて記録し、その後の値動きを自動で埋めています（${shortDate(f.as_of)} 時点・成績を待っているもの ${count(f.pending)}件）。</p>
+    <p class="small muted">数え方はバックテストと同じで、シグナルの翌営業日の始値で買った場合の騰落率です。「指数との差」は、同じ日に${d.market === "us" ? "S&amp;P 500" : "日経平均"}を同じ方法で売買した場合との差。
+      しきい値を変えると、変更前のシグナルは「以前の設定」として分けて集計します（今の設定: 逆張り ${esc(f.current.contrarian)}・順張り ${esc(f.current.momentum)}）。手数料・税金は含みません。</p>
+    ${changedSinceBacktest ? `<div class="alert info">バックテストは、しきい値を変える前の設定で計算した数字です<small>比べるときは目安にしてください。バックテストを今の設定で計算し直すと、正確に比べられます。</small></div>` : ""}
+    ${FORWARD_GROUPS.map((g) => forwardGroupHTML(d, f, cfg, g)).join("")}
+    <p class="small muted">結果は目安です。投資助言ではありません。過去の成績は将来を保証しません。</p>
+  </section>`;
+}
+
 // ------------------------------------------------------------ 画面
 
-export function renderBacktest(app, d) {
+// forward = 実運用での成績（なければ null）、cfg = 今のしきい値（市場のデータに入っているもの）
+export function renderBacktest(app, d, forward = null, cfg = null) {
   current = d;
+  currentForward = forward;
+  currentCfg = cfg;
   const p = d.period;
   app.innerHTML = `
     <a class="btn back" href="#${d.market}">← 一覧へ戻る</a>
@@ -172,6 +272,7 @@ export function renderBacktest(app, d) {
       <p class="small muted">「古い期間」でしきい値を選び、「直近2年」で通用するかを確かめる、という見方をします。両方で基準を上回っていれば、偶然ではない可能性が高まります。
         ただし、相場全体が急落した日には多くの銘柄で同時にサインが出るため、回数ほどには独立した例は多くありません。</p>
     </section>
+    ${cfg?.forward ? forwardHTML(d, forward, cfg) : ""}
     ${contrarianHTML(d)}${rciHTML(d)}${momentumHTML(d)}`;
 }
 
@@ -181,7 +282,7 @@ export function initBacktest(app) {
     if (!key || key === "query" || !current) return;
     ui[key] = event.target.value;
     const y = window.scrollY;
-    renderBacktest(app, current);
+    renderBacktest(app, current, currentForward, currentCfg);
     window.scrollTo(0, y);
   });
   app.addEventListener("input", (event) => {

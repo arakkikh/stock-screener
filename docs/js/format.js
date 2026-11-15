@@ -22,6 +22,23 @@ export function pct(value, digits = 2) {
   return sign + Math.abs(value).toFixed(digits) + "%";
 }
 
+// 金額（符号なし）。円は整数、ドルは小数2桁
+export function jpy(value) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return Math.round(value).toLocaleString("ja-JP") + "円";
+}
+
+export function usd(value) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return "$" + value.toLocaleString("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// 金額（+／− 付き）
+export function signedJpy(value) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return (value < 0 ? "−" : value > 0 ? "+" : "") + jpy(Math.abs(value));
+}
+
 export function signClass(value) {
   return value > 0 ? "up" : value < 0 ? "down" : "";
 }

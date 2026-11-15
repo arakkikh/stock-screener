@@ -5,13 +5,18 @@ import { LABEL } from "./labels.js";
 import { REASONS_BY_KIND, reasonLabel, exitPlan, findDropReference, validatePosition } from "./exits.js";
 import { pnl, ytd } from "./ledger.js";
 import { earningsInfo } from "./earnings.js";
+import { mountSizer } from "./sizer.js";
+import { riskHTML, settingsHTML, saveSettingsFromForm } from "./riskview.js";
+import { VIOLATIONS, SWITCH_REASON, autoViolations, hasViolation } from "./stats.js";
+import { statsHTML } from "./statsview.js";
 
 const KEY = "positions";
 export const loadPositions = () => store.get(KEY, []);
 const savePositions = (list) => store.set(KEY, list);
-const SELL_REASONS = ["利確（ルールどおり）", "損切り（ルールどおり）", "悪材料が出たため", "決算をまたがないため", "ルール外（理由のすり替え）"];
+const SELL_REASONS = ["利確（ルールどおり）", "損切り（ルールどおり）", "悪材料が出たため", "決算をまたがないため", SWITCH_REASON];
 
 let ctx = null; // { markets: { jp, us }, momentum: { jp, us }, fx }
+let getJSON = null; // データの読み込み（app.js から受け取る）
 
 // ポジションの銘柄データを探す。順張りで買ったものは、順張り用のデータ（対象銘柄が広い）から探す
 function lookup(pos) {
@@ -36,6 +41,19 @@ const PRINCIPLES = `
     <li>決算はまたがない。</li>
     <li>迷ったら入らない。入るなら小ロット。</li>
   </ul>`;
+
+// ------------------------------------------------------------ 切り替え（保有・記録／資金設定）
+
+const SUBNAV = [["", "保有・記録"], ["stats", "成績"], ["settings", "資金設定"]];
+function subnavHTML(active) {
+  return `<nav class="subnav">${SUBNAV.map(([key, label]) => `<a href="#portfolio${key ? "/" + key : ""}" class="${active === key ? "on" : ""}">${label}</a>`).join("")}</nav>`;
+}
+
+// 全体リスクの計算に使う、ポジションごとの現在値・セクター・テーマ
+function riskInfo(pos) {
+  const { stock } = lookup(pos);
+  return { price: stock?.close ?? null, sector: stock?.sector ?? pos.sector, themes: stock?.themes ?? pos.themes };
+}
 
 // ------------------------------------------------------------ 資金管理
 
@@ -114,6 +132,12 @@ function openCardHTML(pos) {
     <p class="small">買い: ${shortDate(pos.buyDate)}　${price(pos.buyPrice, pos.market)} × ${number(pos.qty, 0)}株<br>
       買った理由: <strong>${esc(reasonLabel(pos.reason, d.config, pos.aim))}</strong></p>
     ${alerts}
+    <div class="pos-risk">
+      <div><label>損切り価格（リスク計算用）</label>
+        <input type="number" step="any" inputmode="decimal" data-pf="stop" value="${pos.stop ?? ""}" placeholder="未設定"></div>
+      <label class="check"><input type="checkbox" data-pf="margin" ${pos.margin ? "checked" : ""}><span>信用取引</span></label>
+    </div>
+    ${pos.stop > 0 ? `<p class="small muted">損切りになったときの損失 ${money(-(pos.buyPrice - pos.stop) * pos.qty, pos.market)}${pos.stop0 > 0 && pos.stop0 !== pos.stop ? `（登録時の損切り価格 ${price(pos.stop0, pos.market)} を成績のR倍数に使います）` : ""}</p>` : ""}
     <table class="kv exit">${exitRow("利確", plan.take, pos.market)}${exitRow("損切り", plan.stop, pos.market)}</table>
     <label class="check"><input type="checkbox" data-pf="bad-news" ${pos.badNews ? "checked" : ""}>
       <span>悪材料（不祥事・下方修正）が出た<br><span class="small muted">チェックすると「チャートに関係なく売る」を表示します。</span></span></label>
@@ -135,9 +159,67 @@ function openCardHTML(pos) {
       </div>
       <label>ひとこと（任意）</label><input type="text" name="note" placeholder="次に活かすこと">
       <p class="small muted">買った理由は「${esc(reasonLabel(pos.reason, d.config, pos.aim))}」でした。売る理由も同じ種類ですか？</p>
+      <h3>ルールの確認</h3>
+      <p class="small muted" data-viol-status>自動で判定できるものを調べています…</p>
+      ${violationChecks(null)}
       <div class="actions"><button type="submit" class="primary">決済を保存</button></div>
     </form>
   </section>`;
+}
+
+// ------------------------------------------------------------ ルール違反のチェック
+
+function violationChecks(values, editable = true) {
+  return Object.entries(VIOLATIONS)
+    .map(([key, label]) => `<label class="check small"><input type="checkbox" data-viol="${key}" ${values?.[key] ? "checked" : ""} ${editable ? "" : "disabled"}>
+      <span>${esc(label)} <span class="muted" data-viol-note="${key}"></span></span></label>`)
+    .join("");
+}
+
+// 決算日（分かる範囲）と日足を集めて、自動で判定できる違反を調べる
+async function loadViolationData(pos) {
+  const folder = pos.market;
+  const [base, mo] = await Promise.all([
+    getJSON(`data/${folder}/_earnings.json`).catch(() => ({})),
+    getJSON(`data/${folder}/m/_earnings.json`).catch(() => ({})),
+  ]);
+  const dates = new Set();
+  for (const entry of [base[pos.code], mo[pos.code]]) {
+    if (!entry) continue;
+    (entry.past || []).forEach((d) => dates.add(d));
+    if (entry.next) dates.add(entry.next);
+  }
+  const { stock } = lookup(pos);
+  if (stock?.earnings?.next) dates.add(stock.earnings.next);
+  if (stock?.earnings?.last) dates.add(stock.earnings.last);
+  const manual = store.get(`earn:${pos.market}:${pos.code}`);
+  if (manual) dates.add(manual);
+  const chart = await getJSON(`data/${folder}/${encodeURIComponent(pos.code)}.json`)
+    .catch(() => getJSON(`data/${folder}/m/${encodeURIComponent(pos.code)}.json`))
+    .catch(() => null);
+  return { earningsDates: dates.size ? [...dates] : null, chart };
+}
+
+// 決済フォームのチェックを、自動判定の結果で埋める（自分で触ったものはそのまま）
+async function fillAutoViolations(form) {
+  const id = form.closest("[data-pos]").dataset.pos;
+  const pos = loadPositions().find((p) => p.id === id);
+  if (!pos) return;
+  if (!form._violationData) form._violationData = await loadViolationData(pos);
+  const sell = { date: form.elements.date.value, reason: form.elements.reason.value };
+  const auto = autoViolations(pos, sell, form._violationData);
+  form._auto = auto;
+  for (const [key, value] of Object.entries(auto)) {
+    const box = form.querySelector(`[data-viol="${key}"]`);
+    const note = form.querySelector(`[data-viol-note="${key}"]`);
+    if (!box.dataset.touched) {
+      if (value != null) box.checked = value;
+      else if (box.dataset.auto) box.checked = false; // 自動で付けたチェックの根拠がなくなった
+      box.dataset.auto = value ? "1" : "";
+    }
+    note.textContent = value == null ? "（自己申告）" : "（自動判定）";
+  }
+  form.querySelector("[data-viol-status]").textContent = "自動で判定できるものはチェックを入れています。違っていれば直してください。";
 }
 
 // ------------------------------------------------------------ 決済済み
@@ -149,7 +231,7 @@ function closedHTML(closed) {
     .map((p) => {
       const d = ctx.markets[p.market];
       const value = pnl(p);
-      const off = p.sell.reason.startsWith("ルール外");
+      const off = p.sell.reason.startsWith("ルール外") || hasViolation(p.sell);
       return `<details class="closed" data-pos="${esc(p.id)}">
         <summary><span>${shortDate(p.sell.date)}　${esc(p.name)}${off ? `　<span class="badge warn">ルール外</span>` : ""}</span>
           <span class="num ${signClass(value)}">${money(value, p.market)}</span></summary>
@@ -157,6 +239,8 @@ function closedHTML(closed) {
           （${pct((p.sell.price / p.buyPrice - 1) * 100)}）<br>
           買った理由: ${esc(reasonLabel(p.reason, d.config, p.aim))}<br>売った理由: ${esc(p.sell.reason)}${p.sell.note ? `<br>ひとこと: ${esc(p.sell.note)}` : ""}</p>
         <p class="small"><span class="muted">なぜこの銘柄か</span> ${esc(p.memo.why)}<br><span class="muted">根拠</span> ${esc(p.memo.basis)}<br><span class="muted">負けの条件</span> ${esc(p.memo.lose)}</p>
+        <p class="small muted">ルールの確認（あとから直せます）</p>
+        ${violationChecks(p.sell.violations)}
         <div class="actions"><button type="button" data-pf="delete">この記録を削除</button></div>
       </details>`;
     });
@@ -171,7 +255,9 @@ export function renderPortfolio(app, context) {
   const open = positions.filter((p) => !p.sell);
   const closed = positions.filter((p) => p.sell);
   app.innerHTML = `
+    ${subnavHTML("")}
     ${moneyHTML(positions)}
+    ${riskHTML(open, ctx.markets.jp.config, ctx.fx, riskInfo)}
     <section class="card small"><h2>守るルール</h2>${PRINCIPLES}</section>
     <h3>保有中（${open.length}）</h3>
     ${open.length ? open.map(openCardHTML).join("") : `<p class="muted small pad">保有中のポジションはありません。銘柄の詳細画面の「ポジションを登録」から追加できます。</p>`}
@@ -185,6 +271,18 @@ export function renderPortfolio(app, context) {
         <label class="btn">インポート（ファイルから復元）<input type="file" accept="application/json,.json" data-pf="import" hidden></label>
       </div>
     </section>`;
+  window.scrollTo(0, 0);
+}
+
+export function renderStats(app, context, indexes) {
+  ctx = context;
+  app.innerHTML = subnavHTML("stats") + statsHTML(loadPositions(), ctx, indexes);
+  window.scrollTo(0, 0);
+}
+
+export function renderSettings(app, context) {
+  ctx = context;
+  app.innerHTML = subnavHTML("settings") + settingsHTML(ctx.markets.jp.config, ctx.fx);
   window.scrollTo(0, 0);
 }
 
@@ -251,8 +349,9 @@ export function renderNewPosition(app, context, market, code, chart, kind = "con
         <div class="grid2">
           <div><label for="pf-date">買った日</label><input type="date" id="pf-date" value="${todayISO()}"></div>
           <div><label for="pf-price">買値</label><input type="number" id="pf-price" step="any" inputmode="decimal" value="${s.close ?? ""}"></div>
-          <div><label for="pf-qty">株数</label><input type="number" id="pf-qty" step="any" inputmode="decimal" placeholder="例: 100"></div>
+          <div><label for="pf-qty">株数</label><input type="number" id="pf-qty" step="any" inputmode="decimal" placeholder="下の計算機で求められます"></div>
         </div>
+        <label class="check"><input type="checkbox" id="pf-margin"><span>信用取引で買った<br><span class="small muted">信用建玉の合計が現金を超えたら警告します。</span></span></label>
 
         <label for="pf-reason">買った理由（あとから変更できません）</label>
         <select id="pf-reason"><option value="">選んでください</option>${options}</select>
@@ -270,6 +369,8 @@ export function renderNewPosition(app, context, market, code, chart, kind = "con
           <p class="small">利確: 期限が来たとき<br>損切り: 買った根拠が崩れたとき</p>
         </div>
 
+        <div class="sizer-box" id="pf-sizer"></div>
+
         <h3>理由メモ（3つとも必須）</h3>
         <label for="pf-why">なぜこの銘柄か</label><textarea id="pf-why" rows="2"></textarea>
         <label for="pf-basis">根拠は何か</label><textarea id="pf-basis" rows="2"></textarea>
@@ -285,9 +386,19 @@ export function renderNewPosition(app, context, market, code, chart, kind = "con
     document.getElementById("pf-reason").value = "mo";
     updateReasonFields(d, chart);
   }
+  const sizer = mountSizer(document.getElementById("pf-sizer"), {
+    market, cfg: d.config, digits: d.decimals, fx: ctx.fx, kind,
+    levels: isMomentum ? { ma_fast: s.ma_fast } : { bb_l3: s.levels?.bb_l3 },
+    form: {
+      getBuy: () => num("pf-price"),
+      getReason: () => ({ reason: val("pf-reason"), aim: val("pf-aim") }),
+      onUse: (qty) => (document.getElementById("pf-qty").value = qty),
+    },
+  });
   form.addEventListener("input", (event) => {
     if (event.target.id === "pf-target") event.target.dataset.edited = "1";
     if (event.target.id === "pf-date" || event.target.id === "pf-reason") updateReasonFields(d, chart);
+    if (["pf-price", "pf-reason", "pf-aim"].includes(event.target.id)) sizer.refresh();
   });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -296,12 +407,15 @@ export function renderNewPosition(app, context, market, code, chart, kind = "con
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
       market, code, name: s.name, kind,
       buyDate: val("pf-date"), buyPrice: num("pf-price"), qty: num("pf-qty"), reason,
+      stop: num("pf-stop"), margin: document.getElementById("pf-margin").checked,
+      sector: s.sector, themes: s.themes ?? [],
       memo: { why: val("pf-why").trim(), basis: val("pf-basis").trim(), lose: val("pf-lose").trim() },
       badNews: false, createdAt: new Date().toISOString(),
     };
     if (reason === "c1") pos.target = num("pf-target");
     if (reason === "c3") pos.aim = val("pf-aim");
     if (reason === "theme") pos.deadline = val("pf-deadline");
+    pos.stop0 = pos.stop; // 登録時の損切り価格（成績の R倍数 の 1R に使う。あとで損切り価格を動かしても変えない）
     const errors = validatePosition(pos);
     if (errors.length) {
       document.getElementById("pf-errors").innerHTML = `<div class="alert danger">${errors.map(esc).join("<br>")}</div>`;
@@ -323,7 +437,8 @@ function download(name, text) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function initPortfolio(app, rerender) {
+export function initPortfolio(app, rerender, loader) {
+  getJSON = loader;
   const idOf = (el) => el.closest("[data-pos]")?.dataset.pos;
   const update = (id, change) => savePositions(loadPositions().map((p) => (p.id === id ? change(p) : p)));
 
@@ -334,6 +449,7 @@ export function initPortfolio(app, rerender) {
     if (action === "toggle-close") {
       const form = el.closest("[data-pos]").querySelector("[data-pf-form='close']");
       form.hidden = !form.hidden;
+      if (!form.hidden) fillAutoViolations(form);
     } else if (action === "delete") {
       if (!confirm("この記録を削除します。元に戻せません。よろしいですか？")) return;
       const id = idOf(el);
@@ -346,8 +462,40 @@ export function initPortfolio(app, rerender) {
 
   app.addEventListener("change", async (event) => {
     const el = event.target;
+    const closeForm = el.closest("[data-pf-form='close']");
+    if (closeForm) {
+      if (el.dataset.viol) el.dataset.touched = "1";
+      else if (el.name === "date" || el.name === "reason") fillAutoViolations(closeForm);
+      return;
+    }
+    if (el.dataset.viol) {
+      // 決済済みの記録のチェックを直す
+      const key = el.dataset.viol;
+      update(idOf(el), (p) => ({ ...p, sell: { ...p.sell, violations: { ...(p.sell.violations || {}), [key]: el.checked } } }));
+      return;
+    }
     if (el.dataset.pf === "bad-news") {
       update(idOf(el), (p) => ({ ...p, badNews: el.checked }));
+      rerender();
+    } else if (el.dataset.pf === "margin") {
+      update(idOf(el), (p) => ({ ...p, margin: el.checked }));
+      rerender();
+    } else if (el.dataset.pf === "stop") {
+      const id = idOf(el);
+      const pos = loadPositions().find((p) => p.id === id);
+      const value = el.value === "" ? null : Number(el.value);
+      if (value != null && !(value > 0 && value < pos.buyPrice)) {
+        alert("損切り価格は、0より大きく買値より低い値を入力してください。");
+        el.value = pos.stop ?? "";
+        return;
+      }
+      update(id, (p) => {
+        const next = { ...p };
+        if (value == null) delete next.stop;
+        else next.stop = value;
+        if (value != null && !(p.stop0 > 0)) next.stop0 = value; // 古い記録は、最初に入れた値を登録時の値とする
+        return next;
+      });
       rerender();
     } else if (el.dataset.pf === "import" && el.files[0]) {
       try {
@@ -365,6 +513,13 @@ export function initPortfolio(app, rerender) {
   });
 
   app.addEventListener("submit", (event) => {
+    if (event.target.id === "money-form") {
+      event.preventDefault();
+      const errors = saveSettingsFromForm();
+      if (errors.length) document.getElementById("money-errors").innerHTML = `<div class="alert danger">${errors.map(esc).join("<br>")}</div>`;
+      else rerender();
+      return;
+    }
     const form = event.target.closest("[data-pf-form='close']");
     if (!form) return;
     event.preventDefault();
@@ -374,9 +529,14 @@ export function initPortfolio(app, rerender) {
       alert("売った日と売値を正しく入力してください。");
       return;
     }
+    const violations = {};
+    for (const box of form.querySelectorAll("[data-viol]")) violations[box.dataset.viol] = box.checked;
     update(idOf(form), (p) => ({
       ...p,
-      sell: { date: data.get("date"), price: sellPrice, fee, reason: data.get("reason"), note: String(data.get("note") || "").trim() },
+      sell: {
+        date: data.get("date"), price: sellPrice, fee, reason: data.get("reason"), note: String(data.get("note") || "").trim(),
+        violations, violationsAuto: form._auto ?? null,
+      },
     }));
     rerender();
   });

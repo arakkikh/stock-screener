@@ -1,0 +1,9 @@
+{"market":"jp","year":2026,"fields":["d","c","k","p","v","r5","r10","r20","i5","i10","i20","xr","xd","xe","s"],"rows":[
+["2026-11-13","6954","entry",5541.0,"217106d6",null,null,null,null,null,null,null,null,null,0],
+["2026-11-13","7309","warn:hanging_man",21340.0,"217106d6",null,null,null,null,null,null,null,null,null,0],
+["2026-11-13","8630","warn:hanging_man",7290.0,"217106d6",null,null,null,null,null,null,null,null,null,0],
+["2026-11-13","8725","warn:hanging_man",5316.0,"217106d6",null,null,null,null,null,null,null,null,null,0],
+["2026-11-13","8802","warn:hanging_man",4122.0,"217106d6",null,null,null,null,null,null,null,null,null,0],
+["2026-11-13","7270","warn:harami_top",2792.5,"217106d6",null,null,null,null,null,null,null,null,null,0],
+["2026-11-13","4543","warn:island_top",2400.0,"217106d6",null,null,null,null,null,null,null,null,null,0]
+]}
