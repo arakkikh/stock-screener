@@ -31,7 +31,7 @@ const TREND = { up: `<span class="up">↑ 上昇中</span>`, down: `<span class=
 function rowHTML(g, periods, showRef) {
   const badges = [
     g.strong ? `<span class="badge good">強い</span>` : "",
-    g.few ? `<span class="badge warn">銘柄が少なく参考値</span>` : "",
+    g.few ? `<span class="badge warn" title="銘柄が少なく参考値">少数・参考値</span>` : "",
     g.downtrend ? `<span class="badge">下落トレンド</span>` : "",
   ].join(" ");
   const cells = periods.map((p) => {
@@ -69,7 +69,7 @@ export function renderSectors(app, d) {
       <h2>セクター・テーマの強弱</h2>
       <p class="small">${esc(d.universe)} の銘柄を、セクター・テーマごとに等金額で平均した値動きを、${esc(d.index_name)}と比べています（${shortDate(d.as_of)} 時点）。</p>
       <p class="small muted">太字は${esc(d.index_name)}との差、その下の小さい数字は騰落率そのもの。順位は1週間・1か月・3か月の「指数との差」の平均で決め、${c.rank_change_days}営業日前の順位から${c.rank_change_min}つ以上動いたら上昇中／下降中とします。
-        上位${c.strong_top_pct}%が「強い」（${c.min_stocks}銘柄未満は参考値として除きます）。基準は仮置きです。</p>
+        上位${c.strong_top_pct}%が「強い」。${c.min_stocks}銘柄未満のグループは「少数・参考値」（銘柄が少なく参考値）として、「強い」から除きます。基準は仮置きです。</p>
       <p class="small">${esc(d.index_name)}: 1週間 ${pct(ix["5"], 1)}・1か月 ${pct(ix["21"], 1)}・3か月 ${pct(ix["63"], 1)}</p>
       ${d.market === "jp" ? `<div class="alert info">日経平均は値がさ株の影響が大きいため、等金額で平均したセクターとの差は大きく出やすくなります<small>順位（どのセクターが相対的に強いか）は、比べる指数を変えても変わりません。</small></div>` : ""}
     </section>
