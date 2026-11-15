@@ -5,7 +5,7 @@ import { REGIME_LABEL } from "./regime.js";
 
 const ui = { horizon: null, hold: null, mohold: null, query: "", rgperiod: "all" };
 let current = null;
-let currentForward = null, currentCfg = null, currentStudy = null;
+let currentForward = null, currentCfg = null, currentStudy = null, currentSweep = null;
 
 const BUY = {
   cond1: "条件1（急落）", cond2: "条件2（25日線乖離）", cond3: "条件3（−2σ以下）", bb3: "条件3（−3σ到達）", cond4: "条件4（RCI）",
@@ -320,14 +320,54 @@ function regimeStudyHTML(st) {
   </section>`;
 }
 
+// ------------------------------------------------------------ 相場環境の基準を変えた場合（案A・案B）
+
+function sweepCell(stats, base) {
+  if (!stats) return `<td class="muted">—</td>`;
+  const cls = base == null ? "" : stats.mean > base ? "better" : "worse";
+  return `<td><b class="num ${cls}">${pct(stats.mean)}</b><br><span class="small muted num">勝率${number(stats.win, 0)}%<br>${count(stats.n)}回</span></td>`;
+}
+
+function sweepTable(sw, group, reg, kind, period) {
+  const h = sw.horizon[kind];
+  const rows = sw.variants.filter((v) => v.group === group || v.group === "current")
+    .map((v) => {
+      const r = v[kind];
+      const base = r.baseline[reg]?.[period]?.[h];
+      const trade = r.trades[reg]?.[period];
+      return `<tr class="${v.group === "current" ? "base" : ""}"><td>${esc(v.label)}<br><span class="small muted">${REGIME_LABEL[reg]} ${count(v.days[reg][period])}日</span></td>
+        ${sweepCell(base)}${sweepCell(r.signal[reg]?.[period]?.[h], base?.mean)}
+        ${trade ? `<td><span class="num">${pct(trade.mean)}</span><br><span class="small muted num">勝率${number(trade.win, 0)}%<br>${count(trade.n)}回</span></td>` : `<td class="muted">—</td>`}</tr>`;
+    })
+    .join("");
+  const name = kind === "entry" ? "エントリー候補" : "ブレイクアウト";
+  return `<div class="scroll"><table class="bt"><tr><th>基準</th><th>いつ買っても</th><th>${name}<br><span class="small">${h}営業日後</span></th><th>出口ルール<br>つき売買</th></tr>${rows}</table></div>`;
+}
+
+function sweepHTML(sw) {
+  if (!sw) return "";
+  const period = ui.rgperiod === "test" ? "test" : "all";
+  return `<section class="card">
+    <h2>相場環境の基準を変えた場合</h2>
+    <p class="small muted">基準を変えると、どの日がどの環境になるかが変わります。その環境の日に出たサインの成績を比べました（期間は上の「相場環境別の成績」の選択と同じ: ${period === "test" ? "直近2年" : "全期間"}）。
+      <b class="better">色つき</b>は同じ環境で「いつ買っても」を上回ったもの。基準は自動では変えません。</p>
+    <h3>案A: 「順張り向き」の日のブレイクアウト</h3>
+    ${sweepTable(sw, "A", "momentum", "breakout", period)}
+    <h3>案B: 「逆張り向き」の日のエントリー候補</h3>
+    ${sweepTable(sw, "B", "contrarian", "entry", period)}
+    <p class="small muted">${shortDate(sw.as_of)} 時点。日数が少ない基準は、同じ時期に集中した偶然の影響が大きくなります。手数料・税金は含みません。</p>
+  </section>`;
+}
+
 // ------------------------------------------------------------ 画面
 
 // forward = 実運用での成績（なければ null）、cfg = 今のしきい値（市場のデータに入っているもの）
-export function renderBacktest(app, d, forward = null, cfg = null, study = null) {
+export function renderBacktest(app, d, forward = null, cfg = null, study = null, sweep = null) {
   current = d;
   currentForward = forward;
   currentCfg = cfg;
   currentStudy = study;
+  currentSweep = sweep;
   const p = d.period;
   app.innerHTML = `
     <a class="btn back" href="#${d.market}">← 一覧へ戻る</a>
@@ -339,7 +379,7 @@ export function renderBacktest(app, d, forward = null, cfg = null, study = null)
         ただし、相場全体が急落した日には多くの銘柄で同時にサインが出るため、回数ほどには独立した例は多くありません。</p>
     </section>
     ${cfg?.forward ? forwardHTML(d, forward, cfg) : ""}
-    ${regimeStudyHTML(study)}
+    ${regimeStudyHTML(study)}${sweepHTML(sweep)}
     ${contrarianHTML(d)}${rciHTML(d)}${momentumHTML(d)}`;
 }
 
@@ -349,7 +389,7 @@ export function initBacktest(app) {
     if (!key || key === "query" || !current) return;
     ui[key] = event.target.value;
     const y = window.scrollY;
-    renderBacktest(app, current, currentForward, currentCfg, currentStudy);
+    renderBacktest(app, current, currentForward, currentCfg, currentStudy, currentSweep);
     window.scrollTo(0, y);
   });
   app.addEventListener("input", (event) => {

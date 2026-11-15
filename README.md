@@ -119,6 +119,9 @@ python3 -m http.server 8000 --directory docs
   ```
   .venv/bin/python scripts/run_regime_study.py --market jp
   .venv/bin/python scripts/run_regime_study.py --market us
+  # 判定基準を変えた場合の比較（基準は自動では変えない）
+  .venv/bin/python scripts/run_regime_sweep.py --market jp
+  .venv/bin/python scripts/run_regime_sweep.py --market us
   ```
 - **セクター強弱**: 「セクター」タブ。セクター・テーマごとの1週間・1か月・3か月の指数との差、順位の変化、25日線より上の割合。米国株は公式のセクターETF（XLK など）の値も並べます。「見るだけ」ラベルと、一覧の「強いセクター・テーマ」絞り込みはこの集計を使います。基準は `sectors:`。
 - **イベントカレンダー**: 「カレンダー」タブ。SQ・米国のオプション満期日・日米の休場日は自動計算。FOMC・日銀会合・CPI・雇用統計は `config/events.yaml` に、公式サイトで確認した日程を出典・確認日つきで書きます（**年に1回、公式サイトを見て更新**。期限が近づくと画面と Actions に警告が出ます）。

@@ -483,9 +483,10 @@ async function route() {
         getJSON(`data/${market}.json`).catch(() => null),
         getJSON(`data/${market}_regime_study.json`).catch(() => null),
       ]);
+      const sweep = await getJSON(`data/${market}_regime_sweep.json`).catch(() => null);
       if (stale()) return;
       document.getElementById("as-of").textContent = "";
-      renderBacktest(app, data, forward, base?.config ?? null, study);
+      renderBacktest(app, data, forward, base?.config ?? null, study, sweep);
       window.scrollTo(0, 0);
       return;
     }
