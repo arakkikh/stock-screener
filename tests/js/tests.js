@@ -6,6 +6,8 @@ import { earningsStatus } from "../../docs/js/earnings.js";
 import { store, exportAll, importAll } from "../../docs/js/store.js";
 import { tradeOf, summarize, groupStats, kindOf, autoViolations, hasViolation, vsIndex, ytdVsIndex, SWITCH_REASON } from "../../docs/js/stats.js";
 import { earningsEvents, bannerHTML } from "../../docs/js/calendar.js";
+import { upsert, removeDate, avgVolume, marginState, shortRatioState, flowSummary } from "../../docs/js/supply.js";
+import { lastFriday } from "../../docs/js/supplyview.js";
 import { SETTINGS_KEY, capitalJpy, riskPctOf, stopCandidates, positionSize, portfolioRisk } from "../../docs/js/sizing.js";
 
 const results = { passed: 0, failed: [] };
@@ -512,6 +514,76 @@ test("保有銘柄の決算が近いと注意を出す（決算前営業日と�
   eq(bannerHTML(calEvents, calMarkets, openPos, "2026-12-04").includes("保有中のトヨタの決算が近い"), true);
   eq(bannerHTML(calEvents, calMarkets, openPos, "2026-12-03"), "");
   eq(bannerHTML(calEvents, calMarkets, [{ ...openPos[0], sell: { date: "2026-11-01" } }], "2026-12-04"), ""); // 決済済み
+});
+
+// ---- フェーズ7: 需給メモ ----
+const sdCfg = { supply: { ratio_low: 1.0, sell_days_high: 2, buy_days_high: 5, ratio_high: 5.0, rising_weeks: 2, short_high: 50, short_jump_pt: 5, stale_days: 14 } };
+test("同じ日付は置き換え、日付順に並べる", () => {
+  const list = upsert(upsert([{ d: "2026-11-06", v: 1 }], { d: "2026-10-30", v: 2 }), { d: "2026-11-06", v: 3 });
+  eq(list, [{ d: "2026-10-30", v: 2 }, { d: "2026-11-06", v: 3 }]);
+  eq(removeDate(list, "2026-10-30"), [{ d: "2026-11-06", v: 3 }]);
+});
+test("25日平均出来高は、その日までの日足で計算する", () => {
+  const t = Array.from({ length: 30 }, (_, i) => `2026-10-${String(i + 1).padStart(2, "0")}`);
+  const chart = { t, v: t.map((_, i) => (i < 5 ? 1000 : 100)) };
+  eq(avgVolume(chart, "2026-10-30"), 100);          // 6日目〜30日目
+  eq(avgVolume(chart, "2026-10-25"), 1000 * 5 / 25 + 100 * 20 / 25);
+  eq(avgVolume(chart, "2026-10-10"), null);          // 25日分ない
+  eq(avgVolume(null, "2026-10-30"), null);
+});
+const wk = (d, buy, sell, vol) => ({ d, buy, sell, ...(vol ? { vol } : {}) });
+test("信用倍率と前週比", () => {
+  const st = marginState([wk("2026-10-30", 1000, 500), wk("2026-11-06", 1200, 400)], sdCfg, "2026-11-10");
+  eq([st.ratio, Math.round(st.buyChange), Math.round(st.sellChange), st.latest.d], [3, 20, -20, "2026-11-06"]);
+  eq(marginState([], sdCfg, "2026-11-10"), null);
+});
+test("買い残が多く増加中なら「戻り売りが出やすい」（出来高の日数で判定）", () => {
+  const up = [wk("2026-10-23", 400, 100, 100), wk("2026-10-30", 450, 100, 100), wk("2026-11-06", 500, 100, 100)];
+  eq(marginState(up, sdCfg, "2026-11-10").signals.map((g) => g.key), ["overhang"]);            // 5日分ちょうど・2週連続増加
+  eq(marginState(up.slice(1), sdCfg, "2026-11-10").signals, []);                                 // 増加が1週だけ
+  const flat = [wk("2026-10-23", 500, 100, 100), wk("2026-10-30", 450, 100, 100), wk("2026-11-06", 500, 100, 100)];
+  eq(marginState(flat, sdCfg, "2026-11-10").signals, []);
+  const light = [wk("2026-10-23", 100, 100, 100), wk("2026-10-30", 200, 100, 100), wk("2026-11-06", 300, 100, 100)];
+  eq(marginState(light, sdCfg, "2026-11-10").signals, []);                                       // 3日分で少ない
+});
+test("出来高が分からなければ信用倍率で「買い残が多い」を判定する", () => {
+  const up = [wk("2026-10-23", 300, 100), wk("2026-10-30", 400, 100), wk("2026-11-06", 500, 100)];
+  eq(marginState(up, sdCfg, "2026-11-10").signals.map((g) => g.key), ["overhang"]);  // 5倍ちょうど
+});
+test("信用倍率が低い、または売り残が多いと「買い戻しが入りやすい」", () => {
+  eq(marginState([wk("2026-11-06", 100, 100)], sdCfg, "2026-11-10").signals.map((g) => g.key), ["squeeze"]);   // 1倍ちょうど
+  eq(marginState([wk("2026-11-06", 300, 200, 100)], sdCfg, "2026-11-10").signals.map((g) => g.key), ["squeeze"]); // 売り残2日分
+  eq(marginState([wk("2026-11-06", 300, 100, 100)], sdCfg, "2026-11-10").signals, []);
+  eq(marginState([wk("2026-11-06", 300, 0)], sdCfg, "2026-11-10").ratio, null);   // 売り残ゼロ
+});
+test("入力から日数がたつと「入力が古い」", () => {
+  eq(marginState([wk("2026-11-06", 300, 100)], sdCfg, "2026-11-20").stale, false);
+  eq(marginState([wk("2026-11-06", 300, 100)], sdCfg, "2026-11-21").stale, true);
+});
+test("空売り比率: 高い・急上昇", () => {
+  const base = ["01", "02", "03", "04", "05"].map((d) => ({ d: `2026-11-${d}`, v: 40 }));
+  const st = shortRatioState([...base, { d: "2026-11-06", v: 45 }], sdCfg, "2026-11-06");
+  eq([st.avg, st.jump, st.high], [40, true, false]);
+  eq(shortRatioState([...base, { d: "2026-11-06", v: 44.9 }], sdCfg, "2026-11-06").jump, false);
+  eq(shortRatioState([{ d: "2026-11-06", v: 50 }], sdCfg, "2026-11-06").high, true);
+  eq(shortRatioState([], sdCfg, "2026-11-06"), null);
+});
+test("投資部門別: 直近4週の合計（空欄は数えない）", () => {
+  const list = [
+    { d: "2026-10-09", foreign: 9999, individual: 1 },
+    { d: "2026-10-16", foreign: 100, individual: -50, trust: null },
+    { d: "2026-10-23", foreign: -300, individual: 200, trust: 10 },
+    { d: "2026-10-30", foreign: 50, individual: null, trust: 20 },
+    { d: "2026-11-06", foreign: 25, individual: -10, trust: null },
+  ];
+  const f = flowSummary(list, 4);
+  eq([f.weeks, f.from, f.foreign, f.individual, f.trust], [4, "2026-10-16", -125, 140, 30]);
+  eq(flowSummary([], 4), null);
+});
+test("直近の金曜日", () => {
+  eq(lastFriday("2026-11-13"), "2026-11-13");  // 金曜
+  eq(lastFriday("2026-11-15"), "2026-11-13");  // 日曜
+  eq(lastFriday("2026-11-19"), "2026-11-13");  // 木曜
 });
 
 document.getElementById("out").textContent =

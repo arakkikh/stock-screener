@@ -38,7 +38,7 @@ function reasonText(r, c) {
 
 const W = 340, H = 110, PAD = 4;
 
-function lineChart(title, t, series, { min = null, max = null, lines = [], regime = null } = {}) {
+export function lineChart(title, t, series, { min = null, max = null, lines = [], regime = null } = {}) {
   const all = series.flatMap((s) => s.values).filter((v) => v != null);
   if (!all.length) return "";
   const lo = min ?? Math.min(...all), hi = max ?? Math.max(...all);

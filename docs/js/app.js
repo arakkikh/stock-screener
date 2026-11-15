@@ -9,6 +9,7 @@ import { mountSizer } from "./sizer.js";
 import { regimeHTML, setRegime, getRegime, mismatch } from "./regime.js";
 import { setSectors, getSectors, watchOnly, sectorDowntrend, inStrong, renderSectors } from "./sectors.js";
 import { renderCalendar, bannerHTML } from "./calendar.js";
+import { marketMemoHTML, stockMemoHTML, supplyBadges, stockState, loadStock, initSupply } from "./supplyview.js";
 import { renderMomentumList, renderMomentumDetail, initMomentum } from "./momentum.js";
 import { renderFundList, renderFundDetail, mountFundCard, initFund } from "./fund.js";
 import { renderBacktest, initBacktest } from "./backtest.js";
@@ -122,6 +123,7 @@ const FILTERS = [
   ["warn", "警戒", hasWarning],
   ["hold", "保有継続ゾーン", (s) => s.trend.perfect_order],
   ["strong", "強いセクター・テーマ", (s) => inStrong(current.market, s)],
+  ["supply", "需給メモあり", (s) => current.market === "jp" && loadStock("jp", s.code).length > 0],
 ];
 
 const SORTS = {
@@ -129,7 +131,14 @@ const SORTS = {
   change: (a, b) => a.change_pct - b.change_pct,
   deviation: (a, b) => a.deviation_pct - b.deviation_pct,
   code: (a, b) => a.code.localeCompare(b.code),
+  // 需給メモの信用倍率が低い順（入力がない銘柄は後ろ）
+  ratio: (a, b) => ratioOf(a) - ratioOf(b) || a.code.localeCompare(b.code),
 };
+
+function ratioOf(stock) {
+  const st = stockState(current.market, stock.code, current.config);
+  return st?.ratio ?? Infinity;
+}
 
 function lightsHTML(stock) {
   const dots = [1, 2, 3, 4]
@@ -158,6 +167,7 @@ function badgesHTML(stock) {
   if (stock.divergence) out.push(`<span class="badge">ダイバージェンス</span>`);
   if (watchOnly(current.market, stock)) out.push(`<span class="badge">見るだけ</span>`);
   if (inStrong(current.market, stock)) out.push(`<span class="badge good">強いセクター</span>`);
+  out.push(supplyBadges(current.market, stock, current.config));
   if (earningsInfo(stock).soon) out.push(`<span class="badge warn">決算前</span>`);
   if (stock.stale) out.push(`<span class="badge">データが古い</span>`);
   for (const theme of stock.themes) out.push(`<span class="badge tag">${esc(theme)}</span>`);
@@ -209,6 +219,7 @@ function controlsHTML(d) {
       <select data-control="sort" aria-label="並び順">
         ${sortOption("count", "点灯数が多い順")}${sortOption("change", "前日比が低い順")}
         ${sortOption("deviation", "乖離が大きい順")}${sortOption("code", "コード順")}
+        ${d.market === "jp" ? sortOption("ratio", "信用倍率が低い順") : ""}
       </select>
       <input type="search" data-control="query" placeholder="銘柄を検索" value="${esc(ui.query)}">
     </div>`;
@@ -231,7 +242,7 @@ function rulesHTML(d) {
 }
 
 function renderList(d) {
-  app.innerHTML = regimeHTML(getRegime(d.market)) + thermometerHTML(d) + `<div id="controls">${controlsHTML(d)}</div><div id="list">${listHTML(d)}</div>` + rulesHTML(d);
+  app.innerHTML = regimeHTML(getRegime(d.market)) + (d.market === "jp" ? marketMemoHTML(d.config) : "") + thermometerHTML(d) + `<div id="controls">${controlsHTML(d)}</div><div id="list">${listHTML(d)}</div>` + rulesHTML(d);
   window.scrollTo(0, ui.listScroll);
 }
 
@@ -247,6 +258,10 @@ function alertsHTML(d, s) {
   if (s.entry) out.push(`<div class="alert entry">エントリー候補<small>買い条件の点灯後に反転サイン（${esc(today)}）が出ました。</small></div>`);
   const off = s.entry ? mismatch(d.market, "contrarian") : null;
   if (off) out.push(`<div class="alert ${off.level}">${off.short}<small>${off.text}候補は消していません。</small></div>`);
+  // 需給メモがあれば、エントリー候補に補足として出す（候補の判定には使わない）
+  const sd = s.entry ? stockState(d.market, s.code, d.config) : null;
+  if (sd?.signals.length)
+    out.push(`<div class="alert info">需給の補足：${sd.signals.map((g) => g.text).join("・")}<small>手入力の信用残（${shortDate(sd.latest.d)}の週時点）から。候補の判定には使っていません。</small></div>`);
   if (s.trend.exit_warning)
     out.push(`<div class="alert warn">手仕舞い警戒<small>${d.config.ma.short}日線と${d.config.ma.mid}日線の接近が${s.trend.approach_count}回目で、高値を更新できていません。</small></div>`);
   if (earn.soon) out.push(`<div class="alert warn">決算はまたがない<small>決算発表の予定日は ${shortDate(earn.next)} です。</small></div>`);
@@ -357,7 +372,7 @@ async function renderDetail(d, code) {
       ${legendHTML(d.config)}
       <p class="small muted">▲ エントリー候補　▼ 警戒・売りサイン　● 補助サイン</p>
     </section>
-    ${conditionsHTML(d, s)}${signsHTML(d, s)}${infoHTML(d, s)}
+    ${conditionsHTML(d, s)}${signsHTML(d, s)}${infoHTML(d, s)}${stockMemoHTML(d.market, s, d.config)}
     <div id="fund-card"></div>
     <section class="card" id="sizer"></section>
     <section class="card">
@@ -593,6 +608,7 @@ app.addEventListener("change", (event) => {
 });
 
 initPortfolio(app, route, getJSON);
+initSupply(app, route, getJSON);
 initMomentum(app, getJSON);
 initFund(app, getJSON);
 initBacktest(app);

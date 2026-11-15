@@ -7,6 +7,7 @@ import { mountFundCard } from "./fund.js";
 import { mountSizer } from "./sizer.js";
 import { regimeHTML, getRegime, mismatch } from "./regime.js";
 import { inStrong } from "./sectors.js";
+import { stockMemoHTML } from "./supplyview.js";
 
 const ui = { filter: "passed", theme: "", sort: "rs", query: "", listScroll: 0, market: null };
 let current = null;
@@ -274,6 +275,7 @@ export async function renderMomentumDetail(app, d, code) {
       </table>
     </section>
     <div id="fund-card"></div>
+    <div id="sd-slot"></div>
     <section class="card" id="sizer"></section>
     <section class="card">
       <h2>ポジション</h2>
@@ -290,6 +292,8 @@ export async function renderMomentumDetail(app, d, code) {
     getJSON("data/fx.json").catch(() => null),
     getJSON(`data/${d.market}.json`).catch(() => null),
   ]);
+  const slot = document.getElementById("sd-slot");
+  if (slot && sizerBox.isConnected) slot.outerHTML = stockMemoHTML(d.market, s, base?.config ?? d.config);
   if (sizerBox.isConnected) {
     mountSizer(sizerBox, {
       market: d.market, cfg: base?.config ?? d.config, digits: d.decimals, fx, kind: "momentum",

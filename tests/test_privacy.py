@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PERSONAL_KEYS = ("positions", "settings:money", "buyPrice", "stop0", "riskPct", "violations")
+PERSONAL_KEYS = ("positions", "settings:money", "buyPrice", "stop0", "riskPct", "violations", "sd:mkt:jp", "sd:stock")
 
 
 def test_public_data_has_no_personal_records():
