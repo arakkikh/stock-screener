@@ -5,5 +5,8 @@
 ["2026-11-13","LIN","warn:hanging_man",526.06,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
 ["2026-11-13","TMO","warn:hanging_man",700.22,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
 ["2026-11-13","ANET","warn:harami_top",197.29,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
-["2026-11-13","TMO","warn:two_black",700.22,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"]
+["2026-11-13","TMO","warn:two_black",700.22,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-16","BRK-B","warn:hanging_man",592.85,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-16","UPS","warn:hanging_man",111.82,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-16","MU","warn:island_top",719.02,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"]
 ]}
