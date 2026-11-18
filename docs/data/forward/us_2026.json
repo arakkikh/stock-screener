@@ -8,5 +8,15 @@
 ["2026-11-13","TMO","warn:two_black",700.22,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
 ["2026-11-16","BRK-B","warn:hanging_man",592.85,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
 ["2026-11-16","UPS","warn:hanging_man",111.82,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
-["2026-11-16","MU","warn:island_top",719.02,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"]
+["2026-11-16","MU","warn:island_top",719.02,"217106d6",null,null,null,null,null,null,null,null,null,0,"momentum"],
+["2026-11-17","CAT","entry",570.79,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-17","DELL","entry",322.79,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-17","GEV","entry",779.91,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-17","INTC","entry",55.17,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-17","PEP","warn:island_top",142.02,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-17","COF","warn:triple_top",186.78,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-17","ANET","warn:two_black",186.42,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-17","LRCX","warn:two_black",210.69,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-17","MU","warn:two_black",712.42,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-17","SNDK","warn:two_black",797.24,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"]
 ]}
