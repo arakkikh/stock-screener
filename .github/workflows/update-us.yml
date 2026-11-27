@@ -65,8 +65,14 @@ jobs:
             exit 0
           fi
           git commit -m "データ更新: us $(date -u +%F)"
-          git pull --rebase
-          git push
+          # 他の更新が先に保存していても取り込んでから送る。一時的な失敗に備えて3回まで試す
+          for i in 1 2 3; do
+            if git pull --rebase && git push; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            echo "保存に失敗しました（${i}回目）。10秒待ってやり直します"
+            sleep 10
+          done
+          exit 1
       - name: 順張り・ファンダの更新に失敗していたら知らせる
         if: steps.momentum.outcome == 'failure' || steps.fund.outcome == 'failure'
         run: |

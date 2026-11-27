@@ -43,6 +43,19 @@ def write_json(path: Path, payload) -> None:
     path.write_text(text + "\n", encoding="utf-8")
 
 
+def latest_dates_hint(prices: dict, tickers: dict, limit: int = 3) -> str:
+    """更新を中止したときにログに出す手がかり: 取得できたデータの最新日の内訳と例。"""
+    last = {code: prices[t].index[-1].strftime("%Y-%m-%d") for code, t in tickers.items() if t in prices and len(prices[t])}
+    if not last:
+        return "データを1件も取得できませんでした"
+    counts: dict = {}
+    for day in last.values():
+        counts[day] = counts.get(day, 0) + 1
+    spread = "、".join(f"{d}: {n}銘柄" for d, n in sorted(counts.items(), reverse=True)[:3])
+    examples = "、".join(f"{c}={d}" for c, d in list(last.items())[:limit])
+    return f"データの最新日 {spread}（例: {examples}）"
+
+
 def merge_earnings(entry: dict, fetched, today: str) -> dict:
     """覚えている決算日に、新しく取得した日付を反映する。
 
@@ -197,6 +210,7 @@ def run_contrarian(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: b
             "取得元の不調とみなして更新を中止します（前回のデータはそのまま残ります）",
             file=sys.stderr,
         )
+        print(f"  原因の手がかり: {latest_dates_hint(prices, tickers)}", file=sys.stderr)
         return 1
     for code, chart in charts.items():
         write_json(folder / f"{code}.json", {"code": code, **chart})
@@ -311,6 +325,7 @@ def run_momentum(market, cfg: dict, as_of: dt.date, now: dt.datetime, force: boo
             "取得元の不調とみなして更新を中止します（前回のデータはそのまま残ります）",
             file=sys.stderr,
         )
+        print(f"  原因の手がかり: {latest_dates_hint(prices, tickers)}", file=sys.stderr)
         return 1
 
     # 決算日は合格銘柄だけ取得する（1銘柄ずつ問い合わせるため）

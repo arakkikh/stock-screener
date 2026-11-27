@@ -82,13 +82,29 @@ def _clean(frame: pd.DataFrame, last_day: dt.date) -> Optional[pd.DataFrame]:
     return frame if len(frame) else None
 
 
+def download_window(last_day: dt.date, period: str) -> tuple:
+    """取得する期間（開始日, 終了日の翌日）。period は "2y" のように年数で書く。
+
+    終了日を last_day（取引が終わった最新の営業日）の翌日に固定し、まだ始まっていない
+    営業日のデータを取得元に問い合わせないようにする。期間を「今まで」にすると、日本時間の
+    深夜〜翌朝の寄り付き前に、最新日の日足に翌営業日の日付が付いて返ることがあった
+    （2026年11月、毎日の更新が「最新日のデータがない」で止まった原因）。
+    """
+    if not period.endswith("y") or not period[:-1].isdigit():
+        raise ValueError(f"period は年数（例: 2y）で指定してください: {period!r}")
+    start = (pd.Timestamp(last_day) - pd.DateOffset(years=int(period[:-1]))).date()
+    return start, last_day + dt.timedelta(days=1)
+
+
 def download_daily(tickers: List[str], last_day: dt.date, period: str = "2y") -> Dict[str, pd.DataFrame]:
     """日足をまとめて取得する。取れなかったティッカーは戻り値に入らない。
 
     株式分割は調整し、配当は調整しない（チャートに表示される値段と同じ）。
     """
+    start, end = download_window(last_day, period)
     raw = yf.download(
-        tickers, period=period, auto_adjust=False, group_by="ticker", progress=False, threads=True
+        tickers, start=start.isoformat(), end=end.isoformat(), auto_adjust=False, group_by="ticker",
+        progress=False, threads=True,
     )
     result = {}
     for ticker in tickers:
