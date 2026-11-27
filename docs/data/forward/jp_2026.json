@@ -6,8 +6,8 @@
 ["2026-11-13","8802","warn:hanging_man",4122.0,"217106d6",-4.85,null,null,-8.01,null,null,null,null,null,0,"wait"],
 ["2026-11-13","7270","warn:harami_top",2792.5,"217106d6",-3.3,null,null,-8.01,null,null,null,null,null,0,"wait"],
 ["2026-11-13","4543","warn:island_top",2400.0,"217106d6",4.84,null,null,-8.01,null,null,null,null,null,0,"wait"],
-["2026-11-16","6702","entry",3524.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
-["2026-11-16","7936","entry",4502.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-16","6702","entry",3524.0,"217106d6",-4.21,null,null,-1.1,null,null,null,null,null,0,"wait"],
+["2026-11-16","7936","entry",4502.0,"217106d6",-8.09,null,null,-1.1,null,null,null,null,null,0,"wait"],
 ["2026-11-20","7741","entry",22885.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
 ["2026-11-20","1928","warn:double_top",3431.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
 ["2026-11-20","3407","warn:double_top",1472.5,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
@@ -34,5 +34,10 @@
 ["2026-11-20","8015","warn:two_black",5770.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
 ["2026-11-20","8031","warn:two_black",4476.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
 ["2026-11-20","8053","warn:two_black",1502.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
-["2026-11-20","8058","warn:two_black",4840.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"]
+["2026-11-20","8058","warn:two_black",4840.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-27","2914","entry",5774.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-27","3407","entry",1554.5,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-27","8316","entry",3050.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-27","6981","warn:double_top",5087.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"],
+["2026-11-27","7974","warn:harami_top",9034.0,"217106d6",null,null,null,null,null,null,null,null,null,0,"wait"]
 ]}
